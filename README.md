@@ -30,4 +30,5 @@ The JSON file contains the following fields:
 |  -- upper    | +MAX      | -- upper position limit                         |
 
 (*) The conversion (position_bits_to_SI) is applied as follows:  value_SI = value_bits/scale.
+
 (**) The home position is specified in the JSON file for convenience, and is used to set the home offset parameter (0xc6) on the drive; any setting of 0xc6 in the CCX file is ignored.
