@@ -1,0 +1,15 @@
+{
+    "file_version": 1,
+    "name": "FlashUpperRotate",
+    "port_name": "COM8",
+    "baud_rate": 115200,
+    "ccx_file": "FlashUpperRotate.ccx",
+    "axes": [ {
+        "type": "REVOLUTE",
+        "position_bits_to_SI": {
+           "scale":  250000,
+           "offset": 0
+        },
+	"home_pos": 0.08  // radians
+    } ]
+}

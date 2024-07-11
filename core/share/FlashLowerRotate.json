@@ -1,0 +1,15 @@
+{
+    "file_version": 1,
+    "name": "FlashLowerRotate",
+    "port_name": "COM6",
+    "baud_rate": 115200,
+    "ccx_file": "FlashLowerRotate.ccx",
+    "axes": [ {
+        "type": "REVOLUTE",
+        "position_bits_to_SI": {
+           "scale":  250000,
+           "offset": 0
+        },
+	"home_pos": -0.42  // radians
+    } ]
+}
