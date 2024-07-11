@@ -224,7 +224,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
         }
         std::cout << this->GetName() <<  ": setting baud rate to " << m_config.baud_rate << std::endl;
         
-        sprintf(cmdBuf, "s r0x90 %d\r", m_config.baud_rate);
+        sprintf(cmdBuf, "s r0x90 %ld\r", m_config.baud_rate);
         int nBytes = static_cast<int>(strlen(cmdBuf));
         int nSent = mSerialPort.Write(cmdBuf, nBytes);
         if (nSent != nBytes) {
@@ -393,7 +393,7 @@ int mtsCopleyController::SendCommand(const char *cmd, int len, long *value, unsi
                         unsigned int nchars;
                         char *p = respBuf+2;
                         for (unsigned int i = 0; i < num; i++) {
-                            if (sscanf(p, "%d%n", value+i, &nchars) != 1) {
+                            if (sscanf(p, "%ld%n", value+i, &nchars) != 1) {
                                 sprintf(msgBuf, "SendCommand %s: failed to parse response %s", cmd, respBuf);
                                 rc = -1;
                                 break;
@@ -446,7 +446,7 @@ int mtsCopleyController::ParameterSet(unsigned int addr, long value, unsigned in
         p += 3;
     }
     char bank = inRAM ? 'r' : 'f';
-    sprintf(p, "s %c0x%x %d\r", bank, addr, value);
+    sprintf(p, "s %c0x%x %ld\r", bank, addr, value);
     return SendCommand(cmdBuf, static_cast<int>(strlen(cmdBuf)));
 }
 
@@ -488,7 +488,7 @@ int mtsCopleyController::ParameterSetArray(unsigned int addr, long *value, unsig
     sprintf(p, "s %c0x%x", bank, addr);
     p += strlen(p);
     for (unsigned int i = 0; i < num; i++) {
-        sprintf(p, " %d", value[i]);
+        sprintf(p, " %ld", value[i]);
         p += strlen(p);
     }
     sprintf(p, "\r");
@@ -513,7 +513,7 @@ void mtsCopleyController::SendCommandRet(const std::string &cmdString, std::stri
 #ifndef SIMULATION
     if (mSerialPort.IsOpened()) {
         int nSent = mSerialPort.Write(cmdString+"\r");
-        if (nSent != cmdString.size()+1) {
+        if (nSent != static_cast<int>(cmdString.size()+1)) {
             CMN_LOG_CLASS_RUN_ERROR << "Failed to write " << cmdString << std::endl;
             retString.assign("Failed to write command");
             return;
@@ -838,8 +838,9 @@ bool mtsCopleyController::LoadCCX(const std::string &fileName)
         CMN_LOG_CLASS_INIT_ERROR << "LoadCCX: failed to parse file version from [" << buf << "]" << std::endl;
         return false;
     }
-    if ((fileVer != 13) && (fileVer != 14))
+    if ((fileVer != 13) && (fileVer != 14)) {
         CMN_LOG_CLASS_INIT_WARNING << "LoadCCX: unsupported file version " << fileVer << std::endl;
+    }
     ccxFile.getline(buf, sizeof(buf));
     unsigned int numAxes;
     if (sscanf(buf, "%d", &numAxes) != 1) {
@@ -872,7 +873,7 @@ bool mtsCopleyController::LoadCCX(const std::string &fileName)
             sprintf(mbuf, "Parameter %x, axis %d, %s: ", param, axis, name);
             if ((it->second == FLAGS_DEFAULT) || (it->second == FLAGS_NO_UPDATE)) {
                 long value;
-                if (sscanf(valueStr, "%d", &value) != 1) {
+                if (sscanf(valueStr, "%ld", &value) != 1) {
                     CMN_LOG_CLASS_INIT_ERROR << "LoadCCX: failed to parse parameter value, param " << std::hex
                                              << param << " from [" << valueStr << "]" << std::dec << std::endl;
                     continue;
@@ -913,7 +914,7 @@ bool mtsCopleyController::LoadCCX(const std::string &fileName)
 #ifndef SIMULATION
             else if (it->second == FLAGS_ARRAY3H) {
                 long values[3];
-                if (sscanf(valueStr, "%x:%x:%x", &values[0], &values[1], &values[2]) != 3) {
+                if (sscanf(valueStr, "%lx:%lx:%lx", &values[0], &values[1], &values[2]) != 3) {
                     CMN_LOG_CLASS_INIT_ERROR << "LoadCCX: failed to parse parameter values (3H), param " << std::hex
                                              << param << " from [" << valueStr << "]" << std::dec << std::endl;
                     continue;
