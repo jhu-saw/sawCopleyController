@@ -72,6 +72,8 @@ protected:
     vctLongVec mStatus;
     prmConfigurationJoint m_config_j;       // Joint configuration
     prmStateJoint m_measured_js;            // Measured joint state (CRTK)
+    prmStateJoint m_setpoint_js;            // Setpoint joint state (CRTK)
+    prmOperatingState m_op_state;           // Operating state (CRTK)
     vctDoubleVec mDispScale;                // Display scale
     std::vector<std::string> mDispUnits;    // Display units
 

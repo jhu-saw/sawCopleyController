@@ -72,6 +72,7 @@ void mtsCopleyController::SetupInterfaces(void)
 
         // Standard CRTK interfaces
         mInterface->AddCommandReadState(this->StateTable, m_measured_js, "measured_js");
+        mInterface->AddCommandReadState(this->StateTable, m_op_state, "operating_state");
         mInterface->AddCommandWrite(&mtsCopleyController::move_jp, this, "move_jp");
         mInterface->AddCommandWrite(&mtsCopleyController::move_jr, this, "move_jr");
         mInterface->AddCommandRead(&mtsCopleyController::GetConfig_js, this, "configuration_js");
@@ -142,10 +143,13 @@ void mtsCopleyController::Configure(const std::string& fileName)
     // Raw encoder position
     mPosRaw.SetSize(mNumAxes);
     mPosRaw.SetAll(0);
-    // We have position for measured_js
+    // We have position for measured_js and setpoint_js
     m_measured_js.Name().SetSize(mNumAxes);
     m_measured_js.Position().SetSize(mNumAxes);
     m_measured_js.Position().SetAll(0.0);
+    m_setpoint_js.Name().SetSize(mNumAxes);
+    m_setpoint_js.Position().SetSize(mNumAxes);
+    m_setpoint_js.Position().SetAll(0.0);
     // Status
     mStatus.SetSize(mNumAxes);
     mStatus.SetAll(0);
@@ -164,6 +168,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
     for (axis = 0; axis < mNumAxes; axis++) {
         sawCopleyControllerConfig::axis &axisData = m_config.axes[axis];
         m_measured_js.Name()[axis].assign(1, 'A'+axis);
+        m_setpoint_js.Name()[axis].assign(1, 'A'+axis);
         m_config_j.Name()[axis].assign(1, 'A'+axis);
         m_config_j.Type()[axis] = axisData.type;
         m_config_j.PositionMin()[axis] = axisData.position_limits.lower;
@@ -186,6 +191,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
 
     StateTable.AddData(mPosRaw, "position_raw");
     StateTable.AddData(m_measured_js, "measured_js");
+    StateTable.AddData(m_op_state, "op_state");
     StateTable.AddData(mStatus, "status");
     StateTable.AddData(mSpeed, "speed");
     StateTable.AddData(mAccel, "accel");
@@ -282,6 +288,13 @@ void mtsCopleyController::Configure(const std::string& fileName)
             CMN_LOG_CLASS_INIT_ERROR << "Configure: failed to get deceleration" << std::endl;
         }
     }
+    // Check whether axis is homed
+    m_op_state.SetIsHomed(false);
+    long trajStatus;
+    if (ParameterGet(0xc9, trajStatus, axis) == 0) {
+        bool isHomed = trajStatus & (1<<12);
+        m_op_state.SetIsHomed(isHomed);
+    }
 #endif
 }
 
@@ -303,6 +316,10 @@ void mtsCopleyController::Run()
             }
             if (ParameterGet(0xa0, status, axis) == 0) {
                 mStatus[axis] = status;
+                bool isDisabled = status & (1<<12);
+                m_op_state.SetState(isDisabled ? prmOperatingState::DISABLED : prmOperatingState::ENABLED);
+                bool isMoving = status & (1<<27);
+                m_op_state.SetIsBusy(isMoving);
             }
         }
     }
@@ -329,6 +346,7 @@ void mtsCopleyController::Run()
                         mState[axis] = ST_IDLE;
                     }
                     else if (trajStatus & (1<<12)) {
+                        m_op_state.SetIsHomed(true);
                         sprintf(msgBuf, axisStr, ": Home finished", axis);
                         mInterface->SendStatus(GetName()+msgBuf);
                         mState[axis] = ST_IDLE;
@@ -721,8 +739,10 @@ void mtsCopleyController::Home(const vctBoolVec &mask)
                 sprintf(msgBuf, axisStr, ": Starting Home", axis);
                 mInterface->SendStatus(GetName()+msgBuf);
 #ifndef SIMULATION
+                m_op_state.SetIsHomed(false);
                 mState[axis] = ST_HOMING;
 #else
+                m_op_state.SetIsHomed(true);
                 mPosRaw[axis] = 0;
 #endif
             }
