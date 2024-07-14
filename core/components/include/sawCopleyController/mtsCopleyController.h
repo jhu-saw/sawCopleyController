@@ -65,6 +65,7 @@ protected:
 
     char cmdBuf[64];   // Buffer for sending commands
     char msgBuf[128];  // Buffer for sending messages
+    char axisStr[32];  // Either "%s" or "%s on axis %d"
 
     vctLongVec mPosRaw;
     vctDoubleVec mPos;

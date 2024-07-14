@@ -128,6 +128,12 @@ void mtsCopleyController::Configure(const std::string& fileName)
     mNumAxes = static_cast<unsigned int>(m_config.axes.size());
     CMN_LOG_CLASS_INIT_VERBOSE << "Configure: found " << mNumAxes << " axes" << std::endl;
 
+    // Following is used as a control string for sprintf
+    if (mNumAxes == 1)
+        strcpy(axisStr, "%s");
+    else
+        strcpy(axisStr, "%s on axis %d");
+
     // Now, set the data sizes
     m_config_j.Name().SetSize(mNumAxes);
     m_config_j.Type().SetSize(mNumAxes);
@@ -195,7 +201,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
     mSerialPort.SetPortName(m_config.port_name);
     // Default constructor sets port to 9600 baud, N,8,1
     if (!mSerialPort.Open()) {
-        mInterface->SendError(this->GetName() + ": failed to open serial port: "
+        mInterface->SendError(GetName() + ": failed to open serial port: "
                                         + mSerialPort.GetPortName());
         return;
     }
@@ -222,7 +228,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
         default:     CMN_LOG_CLASS_INIT_ERROR << "Unsupported baud rate " << m_config.baud_rate << std::endl;
                      return;
         }
-        std::cout << this->GetName() <<  ": setting baud rate to " << m_config.baud_rate << std::endl;
+        std::cout << GetName() <<  ": setting baud rate to " << m_config.baud_rate << std::endl;
         
         sprintf(cmdBuf, "s r0x90 %ld\r", m_config.baud_rate);
         int nBytes = static_cast<int>(strlen(cmdBuf));
@@ -237,7 +243,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
         if (!mSerialPort.Configure()) {
             CMN_LOG_CLASS_INIT_ERROR << "Failed to configure serial port" << std::endl;
         }
-        std::cout << this->GetName() << ": configuration completed" << std::endl;
+        std::cout << GetName() << ": configuration completed" << std::endl;
     }
 #endif
     if (!m_config.ccx_file.empty()) {
@@ -318,29 +324,29 @@ void mtsCopleyController::Run()
             if (ParameterGet(0xc9, trajStatus, axis) == 0) {
                 if (mState[axis] == ST_HOMING) {
                     if (trajStatus & (1<<11)) {
-                        sprintf(msgBuf, "Home: error on axis %d", axis);
-                        mInterface->SendError(msgBuf);
+                        sprintf(msgBuf, axisStr, ": Home error", axis);
+                        mInterface->SendError(GetName()+msgBuf);
                         mState[axis] = ST_IDLE;
                     }
                     else if (trajStatus & (1<<12)) {
-                        sprintf(msgBuf, "Home: axis %d finished", axis);
-                        mInterface->SendStatus(msgBuf);
+                        sprintf(msgBuf, axisStr, ": Home finished", axis);
+                        mInterface->SendStatus(GetName()+msgBuf);
                         mState[axis] = ST_IDLE;
                     }
                     else if (!(trajStatus & (1<<13))) {
-                        sprintf(msgBuf, "Home: not active on axis %d", axis);
-                        mInterface->SendWarning(msgBuf);
+                        sprintf(msgBuf, axisStr, ": Home not active", axis);
+                        mInterface->SendWarning(GetName()+msgBuf);
                     }
                 }
                 else if (mState[axis] == ST_MOVING) {
                     if (trajStatus & (1<<14)) {
-                        sprintf(msgBuf, "Motion aborted on axis %d", axis);
-                        mInterface->SendWarning(msgBuf);
+                        sprintf(msgBuf, axisStr, ": Motion aborted", axis);
+                        mInterface->SendWarning(GetName()+msgBuf);
                         mState[axis] = ST_IDLE;
                     }
                     else if (!(trajStatus & (1<<15))) {
-                        sprintf(msgBuf, "Motion completed on axis %d", axis);
-                        mInterface->SendStatus(msgBuf);
+                        sprintf(msgBuf, axisStr, ": Motion completed", axis);
+                        mInterface->SendStatus(GetName()+msgBuf);
                         mState[axis] = ST_IDLE;
                     }
                 }
@@ -370,7 +376,7 @@ int mtsCopleyController::SendCommand(const char *cmd, int len, long *value, unsi
         if (nSent == len) {
             if (cmd[0] == 'r') {
                 // No response to reset command
-                mInterface->SendStatus("SendCommand: reset");
+                mInterface->SendStatus(GetName()+": SendCommand reset");
                 return 0;
             }
             Sleep(0.1);  // TEMP
@@ -424,7 +430,7 @@ int mtsCopleyController::SendCommand(const char *cmd, int len, long *value, unsi
 #endif
 
     if (msgBuf[0])
-        mInterface->SendError(msgBuf);
+        mInterface->SendError(GetName()+": "+msgBuf);
 
     return rc;
 }
@@ -434,6 +440,7 @@ void mtsCopleyController::GetConnected(bool &val) const
 #ifndef SIMULATION
     val = mSerialPort.IsOpened();
 #else
+    CMN_LOG_CLASS_RUN_VERBOSE << "Connected returning true" << std::endl;
     val = true;
 #endif
 }
@@ -546,29 +553,29 @@ void mtsCopleyController::move_common(const char *cmdName, const vctDoubleVec &g
                                       unsigned int profile_type)
 {
     if (goal.size() != mNumAxes) {
-        mInterface->SendError(this->GetName() + ": size mismatch in " + std::string(cmdName));
+        mInterface->SendError(GetName() + ": size mismatch in " + std::string(cmdName));
         return;
     }
 
     unsigned int axis;
     for (axis = 0; axis < mNumAxes; axis++) {
         if (ParameterSet(0xc8, profile_type, axis) != 0) {
-            sprintf(msgBuf, "%s: failed to set profile_type to %d for axis %d", cmdName, profile_type, axis);
-            mInterface->SendError(msgBuf);
+            sprintf(msgBuf, ": %s: failed to set profile_type to %d for axis %d", cmdName, profile_type, axis);
+            mInterface->SendError(GetName()+msgBuf);
             return;
         }
         long goalCnts = static_cast<long>(goal[axis]*m_config.axes[axis].position_bits_to_SI.scale);
 #ifndef SIMULATION
         if (ParameterSet(0xca, goalCnts, axis) != 0) {
-            sprintf(msgBuf, "%s: failed to set position goal to %ld for axis %d", cmdName, goalCnts, axis);
-            mInterface->SendError(msgBuf);
+            sprintf(msgBuf, ": %s: failed to set position goal to %ld for axis %d", cmdName, goalCnts, axis);
+            mInterface->SendError(GetName()+msgBuf);
             return;
         }
         long desiredState = -1;
         ParameterGet(0x24, desiredState, axis);
         if (desiredState != 21) {
-            sprintf(msgBuf, "%s: changing state for axis %d from %ld to 21", cmdName, axis, desiredState);
-            mInterface->SendStatus(msgBuf);
+            sprintf(msgBuf, ": %s: changing state for axis %d from %ld to 21", cmdName, axis, desiredState);
+            mInterface->SendStatus(GetName()+msgBuf);
             ParameterSet(0x24, 21, axis);
         }
 #else
@@ -590,15 +597,15 @@ void mtsCopleyController::move_common(const char *cmdName, const vctDoubleVec &g
             rc = SendCommand(cmdBuf, 7);
         }
         if (rc == 0) {
+            sprintf(msgBuf, axisStr, ": Starting motion", axis);
+            mInterface->SendStatus(GetName()+msgBuf);
 #ifndef SIMULATION
-            sprintf(msgBuf, "%s: motion start on axis %d", cmdName, axis);
-            mInterface->SendStatus(msgBuf);
             mState[axis] = ST_MOVING;
 #endif
         }
         else {
-            sprintf(msgBuf, "%s: axis %d, error %d", cmdName, axis, rc);
-            mInterface->SendError(msgBuf);
+            sprintf(msgBuf, ": %s: axis %d, error %d", cmdName, axis, rc);
+            mInterface->SendError(GetName()+msgBuf);
         }
     }
 }
@@ -606,7 +613,7 @@ void mtsCopleyController::move_common(const char *cmdName, const vctDoubleVec &g
 void mtsCopleyController::SetSpeed(const vctDoubleVec &spd)
 {
     if (spd.size() != mNumAxes) {
-        mInterface->SendError(this->GetName() + ": size mismatch in SetSpeed");
+        mInterface->SendError(GetName() + ": size mismatch in SetSpeed");
         return;
     }
 
@@ -622,7 +629,7 @@ void mtsCopleyController::SetSpeed(const vctDoubleVec &spd)
 void mtsCopleyController::SetAccel(const vctDoubleVec &accel)
 {
     if (accel.size() != mNumAxes) {
-        mInterface->SendError(this->GetName() + ": size mismatch in SetAccel");
+        mInterface->SendError(GetName() + ": size mismatch in SetAccel");
         return;
     }
 
@@ -638,7 +645,7 @@ void mtsCopleyController::SetAccel(const vctDoubleVec &accel)
 void mtsCopleyController::SetDecel(const vctDoubleVec &decel)
 {
     if (decel.size() != mNumAxes) {
-        mInterface->SendError(this->GetName() + ": size mismatch in SetDecel");
+        mInterface->SendError(GetName() + ": size mismatch in SetDecel");
         return;
     }
 
@@ -666,7 +673,7 @@ void mtsCopleyController::DisableMotorPower(void)
         if (ParameterSet(0x24, 0, axis) == 0)
             mState[axis] = ST_IDLE;
         else
-            mInterface->SendError("DisableMotorPower failed");
+            mInterface->SendError(GetName()+": DisableMotorPower failed");
     }
 }
 
@@ -691,8 +698,8 @@ void mtsCopleyController::Home(const vctBoolVec &mask)
             long desiredState = -1;
             ParameterGet(0x24, desiredState, axis);
             if (desiredState != 21) {
-                sprintf(msgBuf, "Home: changing state for axis %d from %ld to 21", axis, desiredState);
-                mInterface->SendStatus(msgBuf);
+                sprintf(msgBuf, ": Home: changing state for axis %d from %ld to 21", axis, desiredState);
+                mInterface->SendStatus(GetName()+msgBuf);
                 ParameterSet(0x24, 21, axis);
             }
         }
@@ -711,9 +718,9 @@ void mtsCopleyController::Home(const vctBoolVec &mask)
                 rc = SendCommand(cmdBuf, 7);
             }
             if (rc == 0) {
+                sprintf(msgBuf, axisStr, ": Starting Home", axis);
+                mInterface->SendStatus(GetName()+msgBuf);
 #ifndef SIMULATION
-                sprintf(msgBuf, "Home: axis %d starting", axis);
-                mInterface->SendStatus(msgBuf);
                 mState[axis] = ST_HOMING;
 #else
                 mPosRaw[axis] = 0;
