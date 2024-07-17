@@ -55,9 +55,12 @@ class CISST_EXPORT mtsCopleyController : public mtsTaskContinuous
     void Run(void) override;
     void Cleanup(void) override;
 
+    bool IsConfigured(void) const { return configOK; }
+
 protected:
 
     sawCopleyControllerConfig::controller m_config;
+    bool configOK;                          // Whether Configure successful
     unsigned int mNumAxes;                  // Number of axes
 
     osaSerialPort mSerialPort;

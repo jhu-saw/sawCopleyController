@@ -17,9 +17,6 @@ http://www.cisst.org/cisst/license.txt.
 
 #include <fstream>
 
-#include <cisstCommon/cmnPath.h>
-#include <cisstCommon/cmnAssert.h>
-
 #include <sawCopleyController/mtsCopleyController.h>
 
 // Scale factors
@@ -55,6 +52,7 @@ mtsCopleyController::~mtsCopleyController()
 
 void mtsCopleyController::Init(void)
 {
+    configOK = false;
     mNumAxes = 1;
 }
 
@@ -105,6 +103,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
 {
     unsigned int axis;
 
+    configOK = false;
     std::ifstream jsonStream;
     jsonStream.open(fileName.c_str());
     Json::Value jsonConfig;
@@ -112,13 +111,15 @@ void mtsCopleyController::Configure(const std::string& fileName)
     if (!jsonReader.parse(jsonStream, jsonConfig)) {
         CMN_LOG_CLASS_INIT_ERROR << "Configure: failed to parse " << fileName << " for Copley config" << std::endl
                                  << jsonReader.getFormattedErrorMessages();
-        exit(EXIT_FAILURE);
+        // Leave configOK false
+        return;
     }
     try {
         m_config.DeSerializeTextJSON(jsonConfig);
     } catch (std::exception & std_exception) {
         CMN_LOG_CLASS_INIT_ERROR << "Configure: " << fileName << ": " << std_exception.what() << std::endl;
-        exit(EXIT_FAILURE);
+        // Leave configOK false
+        return;
     }   
 
     CMN_LOG_CLASS_INIT_VERBOSE << "Configure: parsed file " << fileName << std::endl
@@ -296,6 +297,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
         m_op_state.SetIsHomed(isHomed);
     }
 #endif
+    configOK = true;
 }
 
 void mtsCopleyController::Startup()
