@@ -17,6 +17,8 @@ http://www.cisst.org/cisst/license.txt.
 
 #include <fstream>
 
+#include <cisstOSAbstraction/osaSleep.h>
+#include <cisstOSAbstraction/osaGetTime.h>
 #include <sawCopleyController/mtsCopleyController.h>
 
 // Scale factors
@@ -218,7 +220,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
     const double breakTime = 0.5 * cmn_s;
     mSerialPort.WriteBreak(breakTime);
     // Wait for length of break and a bit more
-    Sleep(breakTime + 0.5 * cmn_s);
+    osaSleep(breakTime + 0.5 * cmn_s);
 
     if (m_config.baud_rate != 9600) {
         // If desired baud rate is not 9600
@@ -245,7 +247,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
             return;
         }
         // Wait at least 100 msec after setting baud rate
-        Sleep(0.1);
+        osaSleep(0.1);
         mSerialPort.SetBaudRate(baudRate);
         if (!mSerialPort.Configure()) {
             CMN_LOG_CLASS_INIT_ERROR << "Failed to configure serial port" << std::endl;
@@ -380,6 +382,47 @@ void mtsCopleyController::Cleanup(){
     Close();
 }
 
+int mtsCopleyController::ReadUntilCR(char *respBuf, size_t respSize, double timeout_s)
+{
+    bool done = false;
+    int nRecv = 0;
+    double start_time = osaGetTime();
+    int nIter;
+    for (nIter = 0; !done; nIter++) {
+        int n = mSerialPort.Read(respBuf+nRecv, static_cast<int>(respSize)-nRecv);
+        if (n > 0) {
+            nRecv += n;
+            if (respBuf[nRecv-1] == '\r') {
+                done = true;
+            }
+        }
+        else if (n < 0) {
+            nRecv = n;
+            done = true;
+        }
+        if (!done) {
+            if ((osaGetTime()-start_time) > timeout_s) {
+                mInterface->SendWarning(GetName()+": timeout reading from serial port");
+                nRecv = -1;
+                done = true;
+            }
+            else {
+                // Wait 0.005 seconds
+                osaSleep(0.005);
+            }
+        }
+    }
+#if 0
+    // Following useful for timing measurements
+    if (nIter > 1) {
+        double dt = osaGetTime()-start_time;
+        CMN_LOG_RUN_VERBOSE << "Number of iterations: " << nIter << ", DT = " << dt
+                            << ", nRecv = " << nRecv << std::endl;
+    }
+#endif
+    return nRecv;
+}
+
 int mtsCopleyController::SendCommand(const char *cmd, int len, long *value, unsigned int num)
 {
     int rc = -1;
@@ -399,10 +442,10 @@ int mtsCopleyController::SendCommand(const char *cmd, int len, long *value, unsi
                 mInterface->SendStatus(GetName()+": SendCommand reset");
                 return 0;
             }
-            Sleep(0.1);  // TEMP
+            // Wait a little for the response (typically takes 0.01-0.02 seconds)
+            osaSleep(0.01);
             char respBuf[256];
-            respBuf[0] = 0;
-            int nRecv = mSerialPort.Read(respBuf, sizeof(respBuf));
+            int nRecv = ReadUntilCR(respBuf, sizeof(respBuf));
             if (nRecv > 0) {
                 respBuf[nRecv] = 0;  // May not be needed
                 if (strncmp(respBuf, "ok", 2) == 0) {
@@ -545,12 +588,17 @@ void mtsCopleyController::SendCommandRet(const std::string &cmdString, std::stri
             retString.assign("Failed to write command");
             return;
         }
-        Sleep(0.1);  // TEMP
-        char respBuf[64];
-        respBuf[0] = 0;
-        int nRecv = mSerialPort.Read(respBuf, sizeof(respBuf));
-        respBuf[nRecv] = 0;   // May not be needed
-        retString.assign(respBuf);
+        // Wait a little for the response (typically takes 0.01-0.02 seconds)
+        osaSleep(0.01);
+        char respBuf[256];
+        int nRecv = ReadUntilCR(respBuf, sizeof(respBuf));
+        if (nRecv > 0) {
+            respBuf[nRecv] = 0;   // May not be needed
+            retString.assign(respBuf);
+        }
+        else {
+            retString.assign("");
+        }
     }
 #else
     retString.assign("SIMULATION");

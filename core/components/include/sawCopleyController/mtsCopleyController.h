@@ -92,6 +92,9 @@ protected:
     void SetupInterfaces();
     bool LoadCCX(const std::string &fileName);
 
+    // Read until CR ('\r') or timeout
+    int ReadUntilCR(char *respBuf, size_t respSize, double timeout_s = 0.1);
+
     // Send the command to the drive; returns 0 on success
     // For a read command, result returned in value
     int SendCommand(const char *cmd, int len, long *value = 0, unsigned int num = 1);
