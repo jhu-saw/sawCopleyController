@@ -1,7 +1,7 @@
 {
     "file_version": 1,
     "name": "FlashLowerRotate",
-    "port_name": "COM6",
+    "port_name": "COM4",
     "baud_rate": 115200,
     "ccx_file": "FlashLowerRotate.ccx",
     "axes": [ {

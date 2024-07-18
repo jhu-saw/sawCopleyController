@@ -1,7 +1,7 @@
 {
     "file_version": 1,
     "name": "FlashUpperRotate",
-    "port_name": "COM8",
+    "port_name": "COM6",
     "baud_rate": 115200,
     "ccx_file": "FlashUpperRotate.ccx",
     "axes": [ {

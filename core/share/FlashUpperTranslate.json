@@ -1,13 +1,13 @@
 {
     "file_version": 1,
     "name": "FlashUpperTranslate",
-    "port_name": "COM7",
+    "port_name": "COM5",
     "baud_rate": 115200,
     "ccx_file": "FlashUpperTranslate.ccx",
     "axes": [ {
         "type": "PRISMATIC",
         "position_bits_to_SI": {
-           "scale":  100000000,
+           "scale":  125000000,
            "offset": 0
         },
 	"home_pos": 0.15  // meters
