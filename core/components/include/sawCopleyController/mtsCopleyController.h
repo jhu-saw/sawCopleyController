@@ -72,7 +72,8 @@ protected:
 
     vctLongVec mPosRaw;
     vctDoubleVec mPos;
-    vctLongVec mStatus;
+    vctLongVec mStatus;                     // Drive status
+    vctLongVec mFault;                      // Fault status
     prmConfigurationJoint m_config_j;       // Joint configuration
     prmStateJoint m_measured_js;            // Measured joint state (CRTK)
     prmStateJoint m_setpoint_js;            // Setpoint joint state (CRTK)
@@ -132,6 +133,9 @@ protected:
     void HomeAll();
     // Home: mask indicates which axes to home
     void Home(const vctBoolVec &mask);
+
+    // Clear fault
+    void ClearFault(const vctLongVec &mask);
 };
 
 CMN_DECLARE_SERVICES_INSTANTIATION(mtsCopleyController)

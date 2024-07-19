@@ -83,6 +83,7 @@ void mtsCopleyController::SetupInterfaces(void)
         mInterface->AddCommandRead(&mtsCopleyController::GetConnected, this, "GetConnected");
         mInterface->AddCommandWriteReturn(&mtsCopleyController::SendCommandRet, this, "SendCommandRet");
         mInterface->AddCommandReadState(this->StateTable, mStatus, "GetStatus");
+        mInterface->AddCommandReadState(this->StateTable, mFault,  "GetFault");
         mInterface->AddCommandReadState(this->StateTable, mSpeed, "GetSpeed");
         mInterface->AddCommandReadState(this->StateTable, mAccel, "GetAccel");
         mInterface->AddCommandReadState(this->StateTable, mDecel, "GetDecel");
@@ -150,12 +151,16 @@ void mtsCopleyController::Configure(const std::string& fileName)
     m_measured_js.Name().SetSize(mNumAxes);
     m_measured_js.Position().SetSize(mNumAxes);
     m_measured_js.Position().SetAll(0.0);
+    m_measured_js.Effort().SetSize(mNumAxes);
+    m_measured_js.Effort().SetAll(0.0);
     m_setpoint_js.Name().SetSize(mNumAxes);
     m_setpoint_js.Position().SetSize(mNumAxes);
     m_setpoint_js.Position().SetAll(0.0);
     // Status
     mStatus.SetSize(mNumAxes);
     mStatus.SetAll(0);
+    mFault.SetSize(mNumAxes);
+    mFault.SetAll(0);
     // Display scale and units
     mDispScale.SetSize(mNumAxes);
     mDispScale.SetAll(1.0);
@@ -196,6 +201,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
     StateTable.AddData(m_measured_js, "measured_js");
     StateTable.AddData(m_op_state, "op_state");
     StateTable.AddData(mStatus, "status");
+    StateTable.AddData(mFault, "fault");
     StateTable.AddData(mSpeed, "speed");
     StateTable.AddData(mAccel, "accel");
     StateTable.AddData(mDecel, "decel");
@@ -312,17 +318,31 @@ void mtsCopleyController::Run()
     bool copleyOK;
     GetConnected(copleyOK);
     if (copleyOK) {
-        long posRaw, status;
+        long value;
         for (unsigned int axis = 0; axis < mNumAxes; axis++) {
-            if (ParameterGet(0x32, posRaw, axis) == 0) {
-                mPosRaw[axis] = posRaw;
+            if (ParameterGet(0x32, value, axis) == 0) {   // measured position
+                mPosRaw[axis] = value;
                 m_measured_js.Position()[axis] = mPosRaw[axis]/m_config.axes[axis].position_bits_to_SI.scale;
             }
-            if (ParameterGet(0xa0, status, axis) == 0) {
-                mStatus[axis] = status;
-                bool isDisabled = status & (1<<12);
-                m_op_state.SetState(isDisabled ? prmOperatingState::DISABLED : prmOperatingState::ENABLED);
-                bool isMoving = status & (1<<27);
+            if (ParameterGet(0x0c, value, axis) == 0) {  // measured current
+                // Units of 0.01 Amps, so divide by 100 to get Amps
+                m_measured_js.Effort()[axis] = static_cast<double>(value)/100.0;
+            }
+            mFault[axis] = 0;
+            if (ParameterGet(0xa0, value, axis) == 0) {   // drive status
+                mStatus[axis] = value;
+                bool isDisabled = value & (1<<12);
+                bool isFault = value & (1<<22);
+                bool isMoving = value & (1<<27);
+                if (isFault) {
+                    m_op_state.SetState(prmOperatingState::FAULT);
+                    if (ParameterGet(0xa4, value, axis) == 0)   // fault status
+                        mFault[axis] = value;
+                }
+                else if (isDisabled)
+                    m_op_state.SetState(prmOperatingState::DISABLED);
+                else
+                    m_op_state.SetState(prmOperatingState::ENABLED);
                 m_op_state.SetIsBusy(isMoving);
             }
         }
@@ -801,6 +821,15 @@ void mtsCopleyController::Home(const vctBoolVec &mask)
                 mInterface->SendError(msgBuf);
             }
         }
+    }
+}
+
+void mtsCopleyController::ClearFault(const vctLongVec &mask)
+{
+    unsigned int axis;
+    for (axis = 0; axis < mNumAxes; axis++) {
+        if (ParameterSet(0xa4, mask[axis], axis) != 0)
+            mInterface->SendError(GetName()+": ClearFault failed");
     }
 }
 
