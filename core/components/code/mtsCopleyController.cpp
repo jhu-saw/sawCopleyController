@@ -92,6 +92,7 @@ void mtsCopleyController::SetupInterfaces(void)
         mInterface->AddCommandWrite(&mtsCopleyController::SetDecel, this, "SetDecel");
         mInterface->AddCommandVoid(&mtsCopleyController::HomeAll, this, "Home");
         mInterface->AddCommandWrite(&mtsCopleyController::Home, this, "Home");
+        mInterface->AddCommandWrite(&mtsCopleyController::ClearFault, this, "ClearFault");
     }
 }
 
@@ -326,7 +327,7 @@ void mtsCopleyController::Run()
             }
             if (ParameterGet(0x0c, value, axis) == 0) {  // measured current
                 // Units of 0.01 Amps, so divide by 100 to get Amps
-                m_measured_js.Effort()[axis] = static_cast<double>(value)/100.0;
+                m_measured_js.Effort()[axis] = static_cast<double>(value)*CurrentBitsToAmps;
             }
             mFault[axis] = 0;
             if (ParameterGet(0xa0, value, axis) == 0) {   // drive status
