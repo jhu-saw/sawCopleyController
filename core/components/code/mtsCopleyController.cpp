@@ -92,7 +92,8 @@ void mtsCopleyController::SetupInterfaces(void)
         mInterface->AddCommandWrite(&mtsCopleyController::SetDecel, this, "SetDecel");
         mInterface->AddCommandVoid(&mtsCopleyController::HomeAll, this, "Home");
         mInterface->AddCommandWrite(&mtsCopleyController::Home, this, "Home");
-        mInterface->AddCommandWrite(&mtsCopleyController::ClearFault, this, "ClearFault");
+        mInterface->AddCommandVoid(&mtsCopleyController::ClearFault, this, "ClearFault");
+        mInterface->AddEventWrite(operating_state, "operating_state", prmOperatingState());
     }
 }
 
@@ -173,6 +174,8 @@ void mtsCopleyController::Configure(const std::string& fileName)
     // Internal state
     mState.SetSize(mNumAxes);
     mState.SetAll(ST_IDLE);
+    mIsHomed.SetSize(mNumAxes);
+    mIsHomed.SetAll(false);
 
     for (axis = 0; axis < mNumAxes; axis++) {
         sawCopleyControllerConfig::axis &axisData = m_config.axes[axis];
@@ -200,6 +203,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
 
     StateTable.AddData(mPosRaw, "position_raw");
     StateTable.AddData(m_measured_js, "measured_js");
+    m_op_state.SetValid(true);
     StateTable.AddData(m_op_state, "op_state");
     StateTable.AddData(mStatus, "status");
     StateTable.AddData(mFault, "fault");
@@ -261,14 +265,17 @@ void mtsCopleyController::Configure(const std::string& fileName)
         }
         std::cout << GetName() << ": configuration completed" << std::endl;
     }
+#else
+    sim24 = 21;
 #endif
     if (!m_config.ccx_file.empty()) {
         std::cout << "Loading drive data from " << m_config.ccx_file << std::endl;
         LoadCCX(m_config.ccx_file);
     }
 #ifndef SIMULATION
-    // Now, query the default speed, accel and decel
+    // Now, query the default speed, accel and decel, and the home status
     // Could also add the jerk (0xce)
+    bool isAllHomed = true;
     for (axis = 0; axis < mNumAxes; axis++) {
         long speedRaw;
         if (ParameterGet(0xcb, speedRaw, axis) == 0) {
@@ -297,14 +304,15 @@ void mtsCopleyController::Configure(const std::string& fileName)
         else {
             CMN_LOG_CLASS_INIT_ERROR << "Configure: failed to get deceleration" << std::endl;
         }
+        // Check whether axis is homed
+        long trajStatus;
+        if (ParameterGet(0xc9, trajStatus, axis) == 0) {
+            mIsHomed[axis] = trajStatus & (1<<12);
+        }
+        if (!mIsHomed[axis])
+            isAllHomed = false;
     }
-    // Check whether axis is homed
-    m_op_state.SetIsHomed(false);
-    long trajStatus;
-    if (ParameterGet(0xc9, trajStatus, axis) == 0) {
-        bool isHomed = trajStatus & (1<<12);
-        m_op_state.SetIsHomed(isHomed);
-    }
+    m_op_state.SetIsHomed(isAllHomed);
 #endif
     configOK = true;
 }
@@ -320,7 +328,11 @@ void mtsCopleyController::Run()
     GetConnected(copleyOK);
     if (copleyOK) {
         long value;
-        for (unsigned int axis = 0; axis < mNumAxes; axis++) {
+        bool isAnyDisabled = false;
+        bool isAnyFault = false;
+        bool isAnyMoving = false;
+        bool isAllHomed = true;
+        for (axis = 0; axis < mNumAxes; axis++) {
             if (ParameterGet(0x32, value, axis) == 0) {   // measured position
                 mPosRaw[axis] = value;
                 m_measured_js.Position()[axis] = mPosRaw[axis]/m_config.axes[axis].position_bits_to_SI.scale;
@@ -329,23 +341,38 @@ void mtsCopleyController::Run()
                 // Units of 0.01 Amps, so divide by 100 to get Amps
                 m_measured_js.Effort()[axis] = static_cast<double>(value)*CurrentBitsToAmps;
             }
-            mFault[axis] = 0;
+            mFault[axis] = 0;    // Updated later if any fault detected
             if (ParameterGet(0xa0, value, axis) == 0) {   // drive status
                 mStatus[axis] = value;
-                bool isDisabled = value & (1<<12);
-                bool isFault = value & (1<<22);
-                bool isMoving = value & (1<<27);
-                if (isFault) {
-                    m_op_state.SetState(prmOperatingState::FAULT);
-                    if (ParameterGet(0xa4, value, axis) == 0)   // fault status
-                        mFault[axis] = value;
-                }
-                else if (isDisabled)
-                    m_op_state.SetState(prmOperatingState::DISABLED);
-                else
-                    m_op_state.SetState(prmOperatingState::ENABLED);
-                m_op_state.SetIsBusy(isMoving);
+                if (value & (1<<12))
+                    isAnyDisabled = true;
+                if (value & (1<<22))
+                    isAnyFault = true;
+                if (value & (1<<27))
+                    isAnyMoving = true;
             }
+            if (!mIsHomed[axis])
+                isAllHomed = false;
+        }
+        prmOperatingState::StateType newState = prmOperatingState::ENABLED;
+        if (isAnyFault) {
+            newState = prmOperatingState::FAULT;
+            for (axis = 0; axis < mNumAxes; axis++) {
+                if (ParameterGet(0xa4, value, axis) == 0)   // fault status
+                    mFault[axis] = value;
+            }
+        }
+        else if (isAnyDisabled) {
+            newState = prmOperatingState::DISABLED;
+        }
+        if ((newState != m_op_state.State()) ||
+            (isAnyMoving != m_op_state.IsBusy()) ||
+            (isAllHomed != m_op_state.IsHomed())) {
+            m_op_state.SetState(newState);
+            m_op_state.SetIsBusy(isAnyMoving);
+            m_op_state.SetIsHomed(isAllHomed);
+            // Trigger event
+            operating_state(m_op_state);
         }
     }
 
@@ -371,7 +398,7 @@ void mtsCopleyController::Run()
                         mState[axis] = ST_IDLE;
                     }
                     else if (trajStatus & (1<<12)) {
-                        m_op_state.SetIsHomed(true);
+                        mIsHomed[axis] = true;
                         sprintf(msgBuf, axisStr, ": Home finished", axis);
                         mInterface->SendStatus(GetName()+msgBuf);
                         mState[axis] = ST_IDLE;
@@ -531,6 +558,7 @@ void mtsCopleyController::GetConnected(bool &val) const
 
 int mtsCopleyController::ParameterSet(unsigned int addr, long value, unsigned int axis, bool inRAM)
 {
+#ifndef SIMULATION
     char *p = cmdBuf;
     if (mNumAxes != 1) {
         sprintf(p, ".%c ", 'A'+axis);
@@ -539,6 +567,11 @@ int mtsCopleyController::ParameterSet(unsigned int addr, long value, unsigned in
     char bank = inRAM ? 'r' : 'f';
     sprintf(p, "s %c0x%x %ld\r", bank, addr, value);
     return SendCommand(cmdBuf, static_cast<int>(strlen(cmdBuf)));
+#else
+    if (addr == 0x24)
+        sim24 = value;
+    return 0;
+#endif
 }
 
 int mtsCopleyController::ParameterGet(unsigned int addr, long &value, unsigned int axis, bool inRAM)
@@ -555,10 +588,13 @@ int mtsCopleyController::ParameterGet(unsigned int addr, long &value, unsigned i
 #else
     switch (addr) {
     case 0x24:    // desired state
-        value = 21;
+        value = sim24;
         break;
     case 0x32:    // position
         value = mPosRaw[axis];
+        break;
+    case 0xa0:
+        value = (sim24 == 0) ? (1<<12) : 0;
         break;
     default:
         value = 0;
@@ -810,10 +846,10 @@ void mtsCopleyController::Home(const vctBoolVec &mask)
                 sprintf(msgBuf, axisStr, ": Starting Home", axis);
                 mInterface->SendStatus(GetName()+msgBuf);
 #ifndef SIMULATION
-                m_op_state.SetIsHomed(false);
+                mIsHomed[axis] = false;
                 mState[axis] = ST_HOMING;
 #else
-                m_op_state.SetIsHomed(true);
+                mIsHomed[axis] = true;;
                 mPosRaw[axis] = 0;
 #endif
             }
@@ -825,11 +861,11 @@ void mtsCopleyController::Home(const vctBoolVec &mask)
     }
 }
 
-void mtsCopleyController::ClearFault(const vctLongVec &mask)
+void mtsCopleyController::ClearFault()
 {
     unsigned int axis;
     for (axis = 0; axis < mNumAxes; axis++) {
-        if (ParameterSet(0xa4, mask[axis], axis) != 0)
+        if (ParameterSet(0xa4, mFault[axis], axis) != 0)
             mInterface->SendError(GetName()+": ClearFault failed");
     }
 }

@@ -59,6 +59,10 @@ class CISST_EXPORT mtsCopleyController : public mtsTaskContinuous
 
 protected:
 
+#ifdef SIMULATION
+    long sim24;
+#endif
+
     sawCopleyControllerConfig::controller m_config;
     bool configOK;                          // Whether Configure successful
     unsigned int mNumAxes;                  // Number of axes
@@ -86,6 +90,9 @@ protected:
     vctDoubleVec mDecel;                    // Max decel for position move
 
     vctUIntVec mState;                      // Internal state machine
+    vctBoolVec mIsHomed;                    // true if axis homed
+
+    mtsFunctionWrite operating_state;       // Event generator
 
     void Init();
     void Close();
@@ -135,7 +142,7 @@ protected:
     void Home(const vctBoolVec &mask);
 
     // Clear fault
-    void ClearFault(const vctLongVec &mask);
+    void ClearFault();
 };
 
 CMN_DECLARE_SERVICES_INSTANTIATION(mtsCopleyController)
