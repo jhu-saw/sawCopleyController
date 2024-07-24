@@ -56,6 +56,7 @@ void mtsCopleyController::Init(void)
 {
     configOK = false;
     mNumAxes = 1;
+    mTicks = 0;
 }
 
 void mtsCopleyController::SetupInterfaces(void)
@@ -66,6 +67,7 @@ void mtsCopleyController::SetupInterfaces(void)
         mInterface->AddMessageEvents();
 
         // Stats
+        mInterface->AddCommandReadState(StateTable, mTicks, "GetTicks");
         mInterface->AddCommandReadState(StateTable, StateTable.PeriodStats, "period_statistics");
 
         mInterface->AddCommandReadState(this->StateTable, mPosRaw, "GetPositionRaw");
@@ -201,6 +203,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
         }
     }
 
+    StateTable.AddData(mTicks, "ticks");
     StateTable.AddData(mPosRaw, "position_raw");
     StateTable.AddData(m_measured_js, "measured_js");
     m_op_state.SetValid(true);
@@ -325,6 +328,7 @@ void mtsCopleyController::Run()
 {
     unsigned int axis;
     bool copleyOK;
+    mTicks++;
     GetConnected(copleyOK);
     if (copleyOK) {
         long value;
@@ -537,6 +541,7 @@ int mtsCopleyController::SendCommand(const char *cmd, int len, long *value, unsi
     }
 #else
     // sprintf(msgBuf, "SendCommand: no serial port in SIMULATION");
+    osaSleep(0.01);
     rc = 0;
 #endif
 
@@ -570,6 +575,7 @@ int mtsCopleyController::ParameterSet(unsigned int addr, long value, unsigned in
 #else
     if (addr == 0x24)
         sim24 = value;
+    osaSleep(0.01);
     return 0;
 #endif
 }
@@ -599,6 +605,7 @@ int mtsCopleyController::ParameterGet(unsigned int addr, long &value, unsigned i
     default:
         value = 0;
     }
+    osaSleep(0.01);
     return 0;
 #endif
 }
@@ -659,6 +666,7 @@ void mtsCopleyController::SendCommandRet(const std::string &cmdString, std::stri
     }
 #else
     retString.assign("SIMULATION");
+    osaSleep(0.01);
 #endif
 }
 
@@ -708,6 +716,7 @@ void mtsCopleyController::move_common(const char *cmdName, const vctDoubleVec &g
             mPosRaw[axis] = goalCnts;
         else if (profile_type == 256)
             mPosRaw[axis] += goalCnts;
+        osaSleep(0.02);
 #endif
     }
     // Note that newer multi-axis drives allow the axes to be specified in the command code;

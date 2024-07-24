@@ -74,6 +74,8 @@ protected:
     char msgBuf[128];  // Buffer for sending messages
     char axisStr[32];  // Either "%s" or "%s on axis %d"
 
+    unsigned int mTicks;                    // Counts number of loops
+
     vctLongVec mPosRaw;
     vctDoubleVec mPos;
     vctLongVec mStatus;                     // Drive status
