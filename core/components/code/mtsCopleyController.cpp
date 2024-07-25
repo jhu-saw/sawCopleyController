@@ -556,7 +556,6 @@ void mtsCopleyController::GetConnected(bool &val) const
 #ifndef SIMULATION
     val = mSerialPort.IsOpened();
 #else
-    CMN_LOG_CLASS_RUN_VERBOSE << "Connected returning true" << std::endl;
     val = true;
 #endif
 }
