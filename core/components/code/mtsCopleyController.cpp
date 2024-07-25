@@ -271,6 +271,13 @@ void mtsCopleyController::Configure(const std::string& fileName)
 #else
     sim24 = 21;
 #endif
+    configOK = true;
+}
+
+void mtsCopleyController::Startup()
+{
+    unsigned int axis;
+
     if (!m_config.ccx_file.empty()) {
         std::cout << "Loading drive data from " << m_config.ccx_file << std::endl;
         LoadCCX(m_config.ccx_file);
@@ -283,8 +290,8 @@ void mtsCopleyController::Configure(const std::string& fileName)
         long speedRaw;
         if (ParameterGet(0xcb, speedRaw, axis) == 0) {
             mSpeed[axis] = (speedRaw*VelocityBitsToCps)/m_config.axes[axis].position_bits_to_SI.scale;
-            CMN_LOG_CLASS_INIT_VERBOSE << "Default speed[" << axis << "]: " << (mSpeed[axis]/mDispScale[axis])
-                                       << mDispUnits[axis] << "/s (" << speedRaw << ")" << std::endl;
+            CMN_LOG_CLASS_INIT_VERBOSE << "Default speed[" << axis << "]: " << (mSpeed[axis]*mDispScale[axis])
+                                       << " " << mDispUnits[axis] << "/s (" << speedRaw << ")" << std::endl;
         }
         else {
             CMN_LOG_CLASS_INIT_ERROR << "Configure: failed to get speed" << std::endl;
@@ -292,8 +299,8 @@ void mtsCopleyController::Configure(const std::string& fileName)
         long accelRaw;
         if (ParameterGet(0xcc, accelRaw, axis) == 0) {
             mAccel[axis] = (accelRaw*AccelBitsToCps2)/m_config.axes[axis].position_bits_to_SI.scale;
-            CMN_LOG_CLASS_INIT_VERBOSE << "Default accel[" << axis << "]: " << (mAccel[axis]/mDispScale[axis])
-                                       << mDispUnits[axis] << "/s^2 (" << accelRaw << ")" << std::endl;
+            CMN_LOG_CLASS_INIT_VERBOSE << "Default accel[" << axis << "]: " << (mAccel[axis]*mDispScale[axis])
+                                       << " " << mDispUnits[axis] << "/s^2 (" << accelRaw << ")" << std::endl;
         }
         else {
             CMN_LOG_CLASS_INIT_ERROR << "Configure: failed to get acceleration" << std::endl;
@@ -301,8 +308,8 @@ void mtsCopleyController::Configure(const std::string& fileName)
         long decelRaw;
         if (ParameterGet(0xcd, decelRaw, axis) == 0) {
             mDecel[axis] = (decelRaw*AccelBitsToCps2)/m_config.axes[axis].position_bits_to_SI.scale;
-            CMN_LOG_CLASS_INIT_VERBOSE << "Default decel[" << axis << "]: " << (mDecel[axis]/mDispScale[axis])
-                                       << mDispUnits[axis] << "/s^2 (" << decelRaw << ")" << std::endl;
+            CMN_LOG_CLASS_INIT_VERBOSE << "Default decel[" << axis << "]: " << (mDecel[axis]*mDispScale[axis])
+                                       << " " << mDispUnits[axis] << "/s^2 (" << decelRaw << ")" << std::endl;
         }
         else {
             CMN_LOG_CLASS_INIT_ERROR << "Configure: failed to get deceleration" << std::endl;
@@ -317,11 +324,6 @@ void mtsCopleyController::Configure(const std::string& fileName)
     }
     m_op_state.SetIsHomed(isAllHomed);
 #endif
-    configOK = true;
-}
-
-void mtsCopleyController::Startup()
-{
 }
 
 void mtsCopleyController::Run()
@@ -873,8 +875,14 @@ void mtsCopleyController::ClearFault()
 {
     unsigned int axis;
     for (axis = 0; axis < mNumAxes; axis++) {
-        if (ParameterSet(0xa4, mFault[axis], axis) != 0)
-            mInterface->SendError(GetName()+": ClearFault failed");
+        if (mFault[axis] != 0) {
+            if (ParameterSet(0xa4, mFault[axis], axis) == 0) {
+                mInterface->SendStatus(GetName()+": Clearing fault");
+            }
+            else {
+                mInterface->SendError(GetName()+": ClearFault failed");
+            }
+        }
     }
 }
 
