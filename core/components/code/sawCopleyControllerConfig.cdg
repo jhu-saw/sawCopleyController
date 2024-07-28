@@ -125,6 +125,12 @@ class {
         default sawCopleyControllerConfig::limits();
         visibility public;
     }
+    member {
+        name axis_label;
+        type std::string;
+        default std::string("");
+        visibility public;
+    }
 }
 
 class {
@@ -164,6 +170,12 @@ class {
         name ccx_file;
         type std::string;
         default std::string("");
+        visibility public;
+    }
+    member {
+        name load_ccx;
+        type bool;
+        default true;
         visibility public;
     }
     member {

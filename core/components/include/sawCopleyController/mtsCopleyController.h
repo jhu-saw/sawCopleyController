@@ -23,6 +23,7 @@ http://www.cisst.org/cisst/license.txt.
 #include <string>
 #include <vector>
 
+#include <cisstCommon/cmnPath.h>
 #include <cisstVector/vctDynamicVectorTypes.h>
 #include <cisstMultiTask/mtsTaskContinuous.h>
 #include <cisstMultiTask/mtsInterfaceProvided.h>
@@ -63,6 +64,9 @@ protected:
     long sim24;
 #endif
 
+    // Path to configuration files
+    cmnPath mConfigPath;
+
     sawCopleyControllerConfig::controller m_config;
     bool configOK;                          // Whether Configure successful
     unsigned int mNumAxes;                  // Number of axes
@@ -86,6 +90,7 @@ protected:
     prmOperatingState m_op_state;           // Operating state (CRTK)
     vctDoubleVec mDispScale;                // Display scale
     std::vector<std::string> mDispUnits;    // Display units
+    std::vector<std::string> mAxisLabel;    // Axis label on drive (parameter 0x92)
 
     vctDoubleVec mSpeed;                    // Max speed for position move
     vctDoubleVec mAccel;                    // Max accel for position move
@@ -115,7 +120,19 @@ protected:
     int ParameterSetArray(unsigned int addr, long *value, unsigned int num, unsigned int axis = 0, bool inRAM = true);
     int ParameterGetArray(unsigned int addr, long *value, unsigned int num, unsigned int axis = 0, bool inRAM = true);
 
+    // Note that default is to read from flash (not RAM)
+    int ParameterGetString(unsigned int addr, std::string &value, unsigned int axis = 0, bool inRAM = false);
+
+    // Checks whether axis label from drive (parameter 0x92) matches JSON file
+    bool CheckAxisLabel(unsigned int axis) const;
+
+    // Performs some common checks, such as whether vector size matches mNumAxes (if vsize != 0)
+    // and whether configOK and copleyOK are true.
+    bool CheckCommand(const std::string &cmdName, size_t vsize = 0) const;
+
     // Methods for provided interface
+    void GetConfigured(bool &val) const
+    { val = configOK; }
     void GetConnected(bool &val) const;
     void SendCommandRet(const std::string& cmdString, std::string &retString);
 
@@ -145,6 +162,16 @@ protected:
 
     // Clear fault
     void ClearFault();
+
+    // Get axis label
+    void GetAxisLabel(std::vector<std::string> &label) const
+    { label = mAxisLabel; }
+
+    // Check all axis labels
+    void CheckAxisLabels(void);
+
+    // Load ccx file (that was specified in JSON file)
+    void CommandLoadCCX(void);
 };
 
 CMN_DECLARE_SERVICES_INSTANTIATION(mtsCopleyController)

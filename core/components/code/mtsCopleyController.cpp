@@ -78,10 +78,12 @@ void mtsCopleyController::SetupInterfaces(void)
         mInterface->AddCommandWrite(&mtsCopleyController::move_jp, this, "move_jp");
         mInterface->AddCommandWrite(&mtsCopleyController::move_jr, this, "move_jr");
         mInterface->AddCommandRead(&mtsCopleyController::GetConfig_js, this, "configuration_js");
+        mInterface->AddEventWrite(operating_state, "operating_state", prmOperatingState());
 
         mInterface->AddCommandVoid(&mtsCopleyController::EnableMotorPower, this, "EnableMotorPower");
         mInterface->AddCommandVoid(&mtsCopleyController::DisableMotorPower, this, "DisableMotorPower");
 
+        mInterface->AddCommandRead(&mtsCopleyController::GetConfigured, this, "GetConfigured");
         mInterface->AddCommandRead(&mtsCopleyController::GetConnected, this, "GetConnected");
         mInterface->AddCommandWriteReturn(&mtsCopleyController::SendCommandRet, this, "SendCommandRet");
         mInterface->AddCommandReadState(this->StateTable, mStatus, "GetStatus");
@@ -95,7 +97,9 @@ void mtsCopleyController::SetupInterfaces(void)
         mInterface->AddCommandVoid(&mtsCopleyController::HomeAll, this, "Home");
         mInterface->AddCommandWrite(&mtsCopleyController::Home, this, "Home");
         mInterface->AddCommandVoid(&mtsCopleyController::ClearFault, this, "ClearFault");
-        mInterface->AddEventWrite(operating_state, "operating_state", prmOperatingState());
+        mInterface->AddCommandRead(&mtsCopleyController::GetAxisLabel, this, "GetAxisLabel");
+        mInterface->AddCommandVoid(&mtsCopleyController::CommandLoadCCX, this, "LoadCCX");
+        mInterface->AddCommandVoid(&mtsCopleyController::CheckAxisLabels, this, "CheckAxisLabels");
     }
 }
 
@@ -109,6 +113,13 @@ void mtsCopleyController::Close()
 void mtsCopleyController::Configure(const std::string& fileName)
 {
     unsigned int axis;
+
+    mConfigPath.Set(cmnPath::GetWorkingDirectory());
+    std::string fullname = mConfigPath.Find(fileName);
+    std::string configDir = fullname.substr(0, fullname.find_last_of('/'));
+    CMN_LOG_CLASS_INIT_VERBOSE << "Configure: setting mConfigPath to " << configDir
+                               << " for file " << fileName << std::endl;
+    mConfigPath.Add(configDir, cmnPath::HEAD);
 
     configOK = false;
     std::ifstream jsonStream;
@@ -169,6 +180,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
     mDispScale.SetSize(mNumAxes);
     mDispScale.SetAll(1.0);
     mDispUnits.resize(mNumAxes);
+    mAxisLabel.resize(mNumAxes);
     // Max speed, accel, decel for position move (will be queried after loading ccx file)
     mSpeed.SetSize(mNumAxes);
     mAccel.SetSize(mNumAxes);
@@ -276,17 +288,22 @@ void mtsCopleyController::Configure(const std::string& fileName)
 
 void mtsCopleyController::Startup()
 {
-    unsigned int axis;
-
-    if (!m_config.ccx_file.empty()) {
-        std::cout << "Loading drive data from " << m_config.ccx_file << std::endl;
-        LoadCCX(m_config.ccx_file);
+    if (!configOK) {
+        CMN_LOG_CLASS_INIT_WARNING << GetName() << ": Startup called for invalid configuration" << std::endl;
     }
-#ifndef SIMULATION
-    // Now, query the default speed, accel and decel, and the home status
-    // Could also add the jerk (0xce)
+    if (m_config.load_ccx && !m_config.ccx_file.empty()) {
+        std::string fullPath = mConfigPath.Find(m_config.ccx_file);
+        if (!fullPath.empty()) {
+            CMN_LOG_CLASS_INIT_VERBOSE << "Loading drive data from " << m_config.ccx_file << std::endl;
+            LoadCCX(fullPath);
+        }
+    }
     bool isAllHomed = true;
+    unsigned int axis;
     for (axis = 0; axis < mNumAxes; axis++) {
+#ifndef SIMULATION
+        // Query the default speed, accel and decel.
+        // Could also add the jerk (0xce).
         long speedRaw;
         if (ParameterGet(0xcb, speedRaw, axis) == 0) {
             mSpeed[axis] = (speedRaw*VelocityBitsToCps)/m_config.axes[axis].position_bits_to_SI.scale;
@@ -294,7 +311,7 @@ void mtsCopleyController::Startup()
                                        << " " << mDispUnits[axis] << "/s (" << speedRaw << ")" << std::endl;
         }
         else {
-            CMN_LOG_CLASS_INIT_ERROR << "Configure: failed to get speed" << std::endl;
+            CMN_LOG_CLASS_INIT_ERROR << "Startup: failed to get speed" << std::endl;
         }
         long accelRaw;
         if (ParameterGet(0xcc, accelRaw, axis) == 0) {
@@ -303,7 +320,7 @@ void mtsCopleyController::Startup()
                                        << " " << mDispUnits[axis] << "/s^2 (" << accelRaw << ")" << std::endl;
         }
         else {
-            CMN_LOG_CLASS_INIT_ERROR << "Configure: failed to get acceleration" << std::endl;
+            CMN_LOG_CLASS_INIT_ERROR << "Startup: failed to get acceleration" << std::endl;
         }
         long decelRaw;
         if (ParameterGet(0xcd, decelRaw, axis) == 0) {
@@ -312,8 +329,9 @@ void mtsCopleyController::Startup()
                                        << " " << mDispUnits[axis] << "/s^2 (" << decelRaw << ")" << std::endl;
         }
         else {
-            CMN_LOG_CLASS_INIT_ERROR << "Configure: failed to get deceleration" << std::endl;
+            CMN_LOG_CLASS_INIT_ERROR << "Startup: failed to get deceleration" << std::endl;
         }
+#endif
         // Check whether axis is homed
         long trajStatus;
         if (ParameterGet(0xc9, trajStatus, axis) == 0) {
@@ -321,9 +339,19 @@ void mtsCopleyController::Startup()
         }
         if (!mIsHomed[axis])
             isAllHomed = false;
+        // Query the axis label (string).
+        std::string label;
+        if (ParameterGetString(0x92, label, axis) == 0) {
+            mAxisLabel[axis].assign(label);
+            if (!CheckAxisLabel(axis)) {
+                configOK = false;
+            }
+        }
+        else {
+            CMN_LOG_CLASS_INIT_ERROR << "Startup: failed to get axis label" << std::endl;
+        }
     }
     m_op_state.SetIsHomed(isAllHomed);
-#endif
 }
 
 void mtsCopleyController::Run()
@@ -332,7 +360,7 @@ void mtsCopleyController::Run()
     bool copleyOK;
     mTicks++;
     GetConnected(copleyOK);
-    if (copleyOK) {
+    if (configOK && copleyOK) {
         long value;
         bool isAnyDisabled = false;
         bool isAnyFault = false;
@@ -380,6 +408,10 @@ void mtsCopleyController::Run()
             // Trigger event
             operating_state(m_op_state);
         }
+    }
+    else {
+        // If not configured or connected, sleep for 0.1 seconds to limit CPU time
+        osaSleep(0.1);
     }
 
     // Advance the state table now, so that any connected components can get
@@ -643,6 +675,25 @@ int mtsCopleyController::ParameterGetArray(unsigned int addr, long *value, unsig
     return SendCommand(cmdBuf, static_cast<int>(strlen(cmdBuf)), value, num);
 }
 
+int mtsCopleyController::ParameterGetString(unsigned int addr, std::string &value, unsigned int axis, bool inRAM)
+{
+    char *p = cmdBuf;
+    if (mNumAxes != 1) {
+        sprintf(p, ".%c ", 'A'+axis);
+        p += 3;
+    }
+    char bank = inRAM ? 'r' : 'f';
+    sprintf(p, "g %c0x%x\r", bank, addr);
+    std::string resp;
+    SendCommandRet(std::string(cmdBuf), resp);
+    int rc = -1;
+    if ((!resp.empty()) && (resp[0] == 'v')) {
+        value = resp.substr(2);
+        rc = 0;
+    }
+    return rc;
+}
+
 void mtsCopleyController::SendCommandRet(const std::string &cmdString, std::string &retString)
 {
 #ifndef SIMULATION
@@ -666,9 +717,46 @@ void mtsCopleyController::SendCommandRet(const std::string &cmdString, std::stri
         }
     }
 #else
-    retString.assign("SIMULATION");
+    retString.assign("v SIMULATION");
     osaSleep(0.01);
 #endif
+}
+
+bool mtsCopleyController::CheckAxisLabel(unsigned int axis) const
+{
+    bool ret = true;
+    if (!m_config.axes[axis].axis_label.empty()) {
+        // If axis_label specified in JSON file, look for a match (case-insensitive)
+        if (_stricmp(m_config.axes[axis].axis_label.c_str(), mAxisLabel[axis].c_str()) == 0) {
+            mInterface->SendStatus(GetName() + ": axis label " + mAxisLabel[axis]);
+        }
+        else {
+            ret = false;
+            mInterface->SendError(GetName() + ": inconsistent axis label, json=["
+                                  + m_config.axes[axis].axis_label + "], drive=["
+                                  + mAxisLabel[axis] + "]");
+        }
+    }
+    return ret;
+}
+
+bool mtsCopleyController::CheckCommand(const std::string &cmdName, size_t vsize) const
+{
+    if ((vsize != 0) && (vsize != mNumAxes)) {
+        mInterface->SendError(GetName() + ": size mismatch in " + std::string(cmdName));
+        return false;
+    }
+    if (!configOK) {
+        mInterface->SendError(GetName() + ": configuration invalid");
+        return false;
+    }
+    bool copleyOK;
+    GetConnected(copleyOK);
+    if (!copleyOK) {
+        mInterface->SendError(GetName() + ": not connected to drive");
+        return false;
+    }
+    return true;
 }
 
 void mtsCopleyController::move_jp(const prmPositionJointSet &goal)
@@ -686,10 +774,8 @@ void mtsCopleyController::move_jr(const prmPositionJointSet &goal)
 void mtsCopleyController::move_common(const char *cmdName, const vctDoubleVec &goal,
                                       unsigned int profile_type)
 {
-    if (goal.size() != mNumAxes) {
-        mInterface->SendError(GetName() + ": size mismatch in " + std::string(cmdName));
+    if (!CheckCommand(cmdName, goal.size()))
         return;
-    }
 
     unsigned int axis;
     for (axis = 0; axis < mNumAxes; axis++) {
@@ -747,10 +833,8 @@ void mtsCopleyController::move_common(const char *cmdName, const vctDoubleVec &g
 
 void mtsCopleyController::SetSpeed(const vctDoubleVec &spd)
 {
-    if (spd.size() != mNumAxes) {
-        mInterface->SendError(GetName() + ": size mismatch in SetSpeed");
+    if (!CheckCommand("SetSpeed", spd.size()))
         return;
-    }
 
     for (unsigned int axis = 0; axis < mNumAxes; axis++) {
         long speedRaw = static_cast<long>((spd[axis]*m_config.axes[axis].position_bits_to_SI.scale)/VelocityBitsToCps);
@@ -763,10 +847,8 @@ void mtsCopleyController::SetSpeed(const vctDoubleVec &spd)
 
 void mtsCopleyController::SetAccel(const vctDoubleVec &accel)
 {
-    if (accel.size() != mNumAxes) {
-        mInterface->SendError(GetName() + ": size mismatch in SetAccel");
+    if (!CheckCommand("SetAccel", accel.size()))
         return;
-    }
 
     for (unsigned int axis = 0; axis < mNumAxes; axis++) {
         long accelRaw = static_cast<long>((accel[axis]*m_config.axes[axis].position_bits_to_SI.scale)/AccelBitsToCps2);
@@ -779,10 +861,8 @@ void mtsCopleyController::SetAccel(const vctDoubleVec &accel)
 
 void mtsCopleyController::SetDecel(const vctDoubleVec &decel)
 {
-    if (decel.size() != mNumAxes) {
-        mInterface->SendError(GetName() + ": size mismatch in SetDecel");
+    if (!CheckCommand("SetDecel", decel.size()))
         return;
-    }
 
     for (unsigned int axis = 0; axis < mNumAxes; axis++) {
         long decelRaw = static_cast<long>((decel[axis]*m_config.axes[axis].position_bits_to_SI.scale)/AccelBitsToCps2);
@@ -796,6 +876,9 @@ void mtsCopleyController::SetDecel(const vctDoubleVec &decel)
 // Enable motor power
 void mtsCopleyController::EnableMotorPower(void)
 {
+    if (!CheckCommand("EnableMotorPower"))
+        return;
+
     for (unsigned int axis = 0; axis < mNumAxes; axis++) {
         ParameterSet(0x24, 21, axis);
     }
@@ -804,6 +887,9 @@ void mtsCopleyController::EnableMotorPower(void)
 // Disable motor power
 void mtsCopleyController::DisableMotorPower(void)
 {
+    if (!CheckCommand("DisableMotorPower"))
+        return;
+
     for (unsigned int axis = 0; axis < mNumAxes; axis++) {
         if (ParameterSet(0x24, 0, axis) == 0)
             mState[axis] = ST_IDLE;
@@ -814,12 +900,18 @@ void mtsCopleyController::DisableMotorPower(void)
 
 void mtsCopleyController::HomeAll()
 {
+    if (!CheckCommand("HomeAll"))
+        return;
+
     vctBoolVec mask(mNumAxes, true);
     Home(mask);
 }
 
 void mtsCopleyController::Home(const vctBoolVec &mask)
 {
+    if (!CheckCommand("Home", mask.size()))
+        return;
+
     unsigned int axis;
     // First loop sets up axes for homing. It assumes that all homing parameters, except home offset,
     // are set by the ccx file.
@@ -873,6 +965,9 @@ void mtsCopleyController::Home(const vctBoolVec &mask)
 
 void mtsCopleyController::ClearFault()
 {
+    if (!CheckCommand("ClearFault"))
+        return;
+
     unsigned int axis;
     for (axis = 0; axis < mNumAxes; axis++) {
         if (mFault[axis] != 0) {
@@ -883,6 +978,14 @@ void mtsCopleyController::ClearFault()
                 mInterface->SendError(GetName()+": ClearFault failed");
             }
         }
+    }
+}
+
+void mtsCopleyController::CheckAxisLabels(void)
+{
+    unsigned int axis;
+    for (axis = 0; axis < mNumAxes; axis++) {
+        CheckAxisLabel(axis);
     }
 }
 
@@ -987,7 +1090,7 @@ bool mtsCopleyController::LoadCCX(const std::string &fileName)
     char mbuf[128];
     std::ifstream ccxFile(fileName.c_str());
     if (!ccxFile.is_open()) {
-        CMN_LOG_CLASS_INIT_ERROR << "LoadCCX: failed to open " << fileName << std::endl;
+        mInterface->SendError(std::string("LoadCCX: failed to open ") + fileName);
         return false;
     }
     CMN_LOG_CLASS_INIT_VERBOSE << "LoadCCX: parsing file " << fileName << std::endl;
@@ -1124,4 +1227,26 @@ bool mtsCopleyController::LoadCCX(const std::string &fileName)
         }
     }
     return true;
+}
+
+void mtsCopleyController::CommandLoadCCX(void)
+{
+    if (!m_config.ccx_file.empty()) {
+        mInterface->SendStatus("Loading drive data from " + m_config.ccx_file);
+        std::string fullPath = mConfigPath.Find(m_config.ccx_file);
+        if (!fullPath.empty()) {
+            if (LoadCCX(fullPath)) {
+                mInterface->SendStatus("Finished loading drive data");
+            }
+            else {
+                mInterface->SendError("Failed to load drive data (check log)");
+            }
+        }
+        else {
+            mInterface->SendError("Could not find file in mConfigPath (check log)");
+        }
+    }
+    else {
+        mInterface->SendWarning("No ccx file specified in json configuration file");
+    }
 }
