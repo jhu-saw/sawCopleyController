@@ -61,13 +61,13 @@ mtsCopleyController::mtsCopleyController(const std::string &name, const std::str
     }
 #else
     if (port_name == "COM4")
-        mAxisLabel[0] = "LOWER ROTATE";
+        mAxisLabel[0] = "Lower Rotate";
     else if (port_name == "COM5")
-        mAxisLabel[0] = "UPPER SLIDE";
+        mAxisLabel[0] = "Upper Slide";
     else if (port_name == "COM6")
-        mAxisLabel[0] = "UPPER ROTATE";
+        mAxisLabel[0] = "Upper Rotate";
     else if (port_name == "COM7")
-        mAxisLabel[0] = "LOWER SLIDE";
+        mAxisLabel[0] = "Lower Slide";
 #endif
 }
 
@@ -528,6 +528,8 @@ int mtsCopleyController::ReadUntilCR(char *respBuf, size_t respSize, double time
         if (n > 0) {
             nRecv += n;
             if (respBuf[nRecv-1] == '\r') {
+                respBuf[nRecv-1] = 0;
+                nRecv--;
                 done = true;
             }
         }
