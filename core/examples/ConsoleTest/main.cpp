@@ -176,7 +176,7 @@ public:
             GetStatus(mStatus);
         }
 
-        int i;
+        size_t i;
         char c = 0;
         if (cmnKbHit()) {
             c = cmnGetChar();

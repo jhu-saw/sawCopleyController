@@ -17,6 +17,7 @@ http://www.cisst.org/cisst/license.txt.
 
 #include <fstream>
 
+#include <cisstCommon/cmnPortability.h>
 #include <cisstOSAbstraction/osaSleep.h>
 #include <cisstOSAbstraction/osaGetTime.h>
 #include <sawCopleyController/mtsCopleyController.h>
@@ -775,7 +776,11 @@ bool mtsCopleyController::CheckAxisLabel(unsigned int axis) const
     bool ret = true;
     if (!m_config.axes[axis].axis_label.empty()) {
         // If axis_label specified in JSON file, look for a match (case-insensitive)
+#if (CISST_OS == CISST_WINDOWS)
         if (_stricmp(m_config.axes[axis].axis_label.c_str(), mAxisLabel[axis].c_str()) == 0) {
+#else
+        if (strcasecmp(m_config.axes[axis].axis_label.c_str(), mAxisLabel[axis].c_str()) == 0) {
+#endif
             mInterface->SendStatus(GetName() + ": axis label " + mAxisLabel[axis]);
         }
         else {
