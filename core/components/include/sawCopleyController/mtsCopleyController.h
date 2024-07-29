@@ -23,6 +23,7 @@ http://www.cisst.org/cisst/license.txt.
 #include <string>
 #include <vector>
 
+#include <cisstCommon/cmnPath.h>
 #include <cisstVector/vctDynamicVectorTypes.h>
 #include <cisstMultiTask/mtsTaskContinuous.h>
 #include <cisstMultiTask/mtsInterfaceProvided.h>
@@ -47,6 +48,11 @@ class CISST_EXPORT mtsCopleyController : public mtsTaskContinuous
     mtsCopleyController(const std::string &name, unsigned int sizeStateTable, bool newThread = true);
     mtsCopleyController(const mtsTaskContinuousConstructorArg &arg);
 
+    // This constructor is used to set the serial port name and baud rate, rather than specifying them
+    // in the JSON configuration file. In the future, this may be changed from a port name to a port number,
+    // for a more portable solution.
+    mtsCopleyController(const std::string &name, const std::string &port_name, unsigned long baud_rate);
+
     ~mtsCopleyController();
 
     // cisstMultiTask functions
@@ -55,9 +61,25 @@ class CISST_EXPORT mtsCopleyController : public mtsTaskContinuous
     void Run(void) override;
     void Cleanup(void) override;
 
+    // Returns first axis label
+    // This is available after calling:
+    //   1) The constructor that specifies the port_name and baud_rate, or
+    //   2) The Configure method (with JSON file) after other constructors
+    std::string GetAxisLabel(void) const { return mAxisLabel[0]; }
+
+    bool IsConfigured(void) const { return configOK; }
+
 protected:
 
+#ifdef SIMULATION
+    long sim24;
+#endif
+
+    // Path to configuration files
+    cmnPath mConfigPath;
+
     sawCopleyControllerConfig::controller m_config;
+    bool configOK;                          // Whether Configure successful
     unsigned int mNumAxes;                  // Number of axes
 
     osaSerialPort mSerialPort;
@@ -65,26 +87,40 @@ protected:
 
     char cmdBuf[64];   // Buffer for sending commands
     char msgBuf[128];  // Buffer for sending messages
+    char axisStr[32];  // Either "%s" or "%s on axis %d"
+
+    unsigned int mTicks;                    // Counts number of loops
 
     vctLongVec mPosRaw;
     vctDoubleVec mPos;
-    vctLongVec mStatus;
+    vctLongVec mStatus;                     // Drive status
+    vctLongVec mFault;                      // Fault status
     prmConfigurationJoint m_config_j;       // Joint configuration
     prmStateJoint m_measured_js;            // Measured joint state (CRTK)
+    prmStateJoint m_setpoint_js;            // Setpoint joint state (CRTK)
+    prmOperatingState m_op_state;           // Operating state (CRTK)
     vctDoubleVec mDispScale;                // Display scale
     std::vector<std::string> mDispUnits;    // Display units
+    std::vector<std::string> mAxisLabel;    // Axis label on drive (parameter 0x92)
 
     vctDoubleVec mSpeed;                    // Max speed for position move
     vctDoubleVec mAccel;                    // Max accel for position move
     vctDoubleVec mDecel;                    // Max decel for position move
 
     vctUIntVec mState;                      // Internal state machine
+    vctBoolVec mIsHomed;                    // true if axis homed
+
+    mtsFunctionWrite operating_state;       // Event generator
 
     void Init();
+    bool InitSerialPort(const std::string &port_name, unsigned long baud_rate);
     void Close();
 
     void SetupInterfaces();
     bool LoadCCX(const std::string &fileName);
+
+    // Read until CR ('\r') or timeout
+    int ReadUntilCR(char *respBuf, size_t respSize, double timeout_s = 0.1);
 
     // Send the command to the drive; returns 0 on success
     // For a read command, result returned in value
@@ -96,7 +132,19 @@ protected:
     int ParameterSetArray(unsigned int addr, long *value, unsigned int num, unsigned int axis = 0, bool inRAM = true);
     int ParameterGetArray(unsigned int addr, long *value, unsigned int num, unsigned int axis = 0, bool inRAM = true);
 
+    // Note that default is to read from flash (not RAM)
+    int ParameterGetString(unsigned int addr, std::string &value, unsigned int axis = 0, bool inRAM = false);
+
+    // Checks whether axis label from drive (parameter 0x92) matches JSON file
+    bool CheckAxisLabel(unsigned int axis) const;
+
+    // Performs some common checks, such as whether vector size matches mNumAxes (if vsize != 0)
+    // and whether configOK and copleyOK are true.
+    bool CheckCommand(const std::string &cmdName, size_t vsize = 0) const;
+
     // Methods for provided interface
+    void GetConfigured(bool &val) const
+    { val = configOK; }
     void GetConnected(bool &val) const;
     void SendCommandRet(const std::string& cmdString, std::string &retString);
 
@@ -123,6 +171,19 @@ protected:
     void HomeAll();
     // Home: mask indicates which axes to home
     void Home(const vctBoolVec &mask);
+
+    // Clear fault
+    void ClearFault();
+
+    // Get axis label
+    void GetAxisLabel(std::vector<std::string> &label) const
+    { label = mAxisLabel; }
+
+    // Check all axis labels
+    void CheckAxisLabels(void);
+
+    // Load ccx file (that was specified in JSON file)
+    void CommandLoadCCX(void);
 };
 
 CMN_DECLARE_SERVICES_INSTANTIATION(mtsCopleyController)
