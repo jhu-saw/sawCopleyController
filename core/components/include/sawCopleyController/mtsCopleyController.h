@@ -48,6 +48,10 @@ class CISST_EXPORT mtsCopleyController : public mtsTaskContinuous
     mtsCopleyController(const std::string &name, unsigned int sizeStateTable, bool newThread = true);
     mtsCopleyController(const mtsTaskContinuousConstructorArg &arg);
 
+    // This constructor is used to set the serial port name and baud rate, rather than specifying them
+    // in JSON configuration file.
+    mtsCopleyController(const std::string &name, const std::string &port_name, unsigned long baud_rate);
+
     ~mtsCopleyController();
 
     // cisstMultiTask functions
@@ -55,6 +59,12 @@ class CISST_EXPORT mtsCopleyController : public mtsTaskContinuous
     void Startup(void) override;
     void Run(void) override;
     void Cleanup(void) override;
+
+    // Returns first axis label
+    // This is available after calling:
+    //   1) The constructor that specifies the port_name and baud_rate, or
+    //   2) The Configure method (with JSON file) after other constructors
+    std::string GetAxisLabel(void) const { return mAxisLabel[0]; }
 
     bool IsConfigured(void) const { return configOK; }
 
@@ -102,6 +112,7 @@ protected:
     mtsFunctionWrite operating_state;       // Event generator
 
     void Init();
+    bool InitSerialPort(const std::string &port_name, unsigned long baud_rate);
     void Close();
 
     void SetupInterfaces();

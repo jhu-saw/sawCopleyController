@@ -47,6 +47,29 @@ mtsCopleyController::mtsCopleyController(const mtsTaskContinuousConstructorArg &
     Init();
 }
 
+mtsCopleyController::mtsCopleyController(const std::string &name, const std::string &port_name, unsigned long baud_rate) :
+    mtsTaskContinuous(name, 1024, true)
+{
+    Init();
+#ifndef SIMULATION
+    if (InitSerialPort(port_name, baud_rate)) {
+        std::string label;
+        if (ParameterGetString(0x92, label, 0) == 0) {
+            mAxisLabel[0] = label;
+        }
+    }
+#else
+    if (port_name == "COM4")
+        mAxisLabel[0] = "LOWER ROTATE";
+    else if (port_name == "COM5")
+        mAxisLabel[0] = "UPPER SLIDE";
+    else if (port_name == "COM6")
+        mAxisLabel[0] = "UPPER ROTATE";
+    else if (port_name == "COM7")
+        mAxisLabel[0] = "LOWER SLIDE";
+#endif
+}
+
 mtsCopleyController::~mtsCopleyController()
 {
     Close();
@@ -55,8 +78,62 @@ mtsCopleyController::~mtsCopleyController()
 void mtsCopleyController::Init(void)
 {
     configOK = false;
-    mNumAxes = 1;
     mTicks = 0;
+    mNumAxes = 1;
+    mAxisLabel.resize(mNumAxes);
+    mAxisLabel[0].clear();
+}
+
+bool mtsCopleyController::InitSerialPort(const std::string &port_name, unsigned long baud_rate)
+{
+    mSerialPort.SetPortName(port_name);
+    // Default constructor sets port to 9600 baud, N,8,1
+    if (!mSerialPort.Open()) {
+        mInterface->SendError(GetName() + ": failed to open serial port: "
+                                        + mSerialPort.GetPortName());
+        return false;
+    }
+    mSerialPort.Configure();
+
+    // Write a break, to make sure serial port is at 9600 baud
+    const double breakTime = 0.5 * cmn_s;
+    mSerialPort.WriteBreak(breakTime);
+    // Wait for length of break and a bit more
+    osaSleep(breakTime + 0.5 * cmn_s);
+
+    if (baud_rate != 9600) {
+        // If desired baud rate is not 9600
+        osaSerialPort::BaudRateType osaBaudRate;
+        switch (baud_rate) {
+        case 19200:  osaBaudRate = osaSerialPort::BaudRate19200;
+                     break;
+        case 38400:  osaBaudRate = osaSerialPort::BaudRate38400;
+                     break;
+        case 57600:  osaBaudRate = osaSerialPort::BaudRate57600;
+                     break;
+        case 115200: osaBaudRate = osaSerialPort::BaudRate115200;
+                     break;
+        default:     CMN_LOG_CLASS_INIT_ERROR << "Unsupported baud rate " << baud_rate << std::endl;
+                     return false;
+        }
+        CMN_LOG_CLASS_INIT_VERBOSE << GetName() <<  ": setting baud rate to " << baud_rate << std::endl;
+
+        sprintf(cmdBuf, "s r0x90 %ld\r", baud_rate);
+        int nBytes = static_cast<int>(strlen(cmdBuf));
+        int nSent = mSerialPort.Write(cmdBuf, nBytes);
+        if (nSent != nBytes) {
+            CMN_LOG_CLASS_INIT_ERROR << "Failed to set baud rate to " << baud_rate << std::endl;
+            return false;
+        }
+        // Wait at least 100 msec after setting baud rate
+        osaSleep(0.1);
+        mSerialPort.SetBaudRate(osaBaudRate);
+        if (!mSerialPort.Configure()) {
+            CMN_LOG_CLASS_INIT_ERROR << "Failed to configure serial port" << std::endl;
+            return false;
+        }
+    }
+    return true;
 }
 
 void mtsCopleyController::SetupInterfaces(void)
@@ -233,52 +310,21 @@ void mtsCopleyController::Configure(const std::string& fileName)
     SetupInterfaces();
 
 #ifndef SIMULATION
-    mSerialPort.SetPortName(m_config.port_name);
-    // Default constructor sets port to 9600 baud, N,8,1
-    if (!mSerialPort.Open()) {
-        mInterface->SendError(GetName() + ": failed to open serial port: "
-                                        + mSerialPort.GetPortName());
-        return;
-    }
-    mSerialPort.Configure();
-
-    // Write a break, to make sure serial port is at 9600 baud
-    const double breakTime = 0.5 * cmn_s;
-    mSerialPort.WriteBreak(breakTime);
-    // Wait for length of break and a bit more
-    osaSleep(breakTime + 0.5 * cmn_s);
-
-    if (m_config.baud_rate != 9600) {
-        // If desired baud rate is not 9600
-        osaSerialPort::BaudRateType baudRate;
-        switch (m_config.baud_rate) {
-        case 19200:  baudRate = osaSerialPort::BaudRate19200;
-                     break;
-        case 38400:  baudRate = osaSerialPort::BaudRate38400;
-                     break;
-        case 57600:  baudRate = osaSerialPort::BaudRate57600;
-                     break;
-        case 115200: baudRate = osaSerialPort::BaudRate115200;
-                     break;
-        default:     CMN_LOG_CLASS_INIT_ERROR << "Unsupported baud rate " << m_config.baud_rate << std::endl;
-                     return;
+    if (!mSerialPort.IsOpened()) {
+        if (!m_config.port_name.empty()) {
+            CMN_LOG_CLASS_INIT_VERBOSE << "Initializing serial port from " << fileName << std::endl;
+            if (!InitSerialPort(m_config.port_name, m_config.baud_rate))
+                return;
         }
-        std::cout << GetName() <<  ": setting baud rate to " << m_config.baud_rate << std::endl;
-        
-        sprintf(cmdBuf, "s r0x90 %ld\r", m_config.baud_rate);
-        int nBytes = static_cast<int>(strlen(cmdBuf));
-        int nSent = mSerialPort.Write(cmdBuf, nBytes);
-        if (nSent != nBytes) {
-            CMN_LOG_CLASS_INIT_ERROR << "Failed to set baud rate to " << m_config.baud_rate << std::endl;
+        else {
+            CMN_LOG_CLASS_INIT_ERROR << "Serial port must be specified in constructor or in " << fileName << std::endl;
             return;
         }
-        // Wait at least 100 msec after setting baud rate
-        osaSleep(0.1);
-        mSerialPort.SetBaudRate(baudRate);
-        if (!mSerialPort.Configure()) {
-            CMN_LOG_CLASS_INIT_ERROR << "Failed to configure serial port" << std::endl;
+    }
+    else {
+        if (!m_config.port_name.empty()) {
+            CMN_LOG_CLASS_INIT_WARNING << "Serial port already initialized; ignoring port_name in " << fileName << std::endl;
         }
-        std::cout << GetName() << ": configuration completed" << std::endl;
     }
 #else
     sim24 = 21;
@@ -339,6 +385,7 @@ void mtsCopleyController::Startup()
         }
         if (!mIsHomed[axis])
             isAllHomed = false;
+#ifndef SIMULATION
         // Query the axis label (string).
         std::string label;
         if (ParameterGetString(0x92, label, axis) == 0) {
@@ -350,6 +397,7 @@ void mtsCopleyController::Startup()
         else {
             CMN_LOG_CLASS_INIT_ERROR << "Startup: failed to get axis label" << std::endl;
         }
+#endif
     }
     m_op_state.SetIsHomed(isAllHomed);
 }

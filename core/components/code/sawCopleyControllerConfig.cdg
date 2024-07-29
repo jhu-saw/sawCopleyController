@@ -152,18 +152,19 @@ class {
     member {
         name port_name;
         type std::string;
-        visibility public;
-    }
-    member {
-        name is_plus;
-        type bool;
-        default true;
+        default std::string("");
         visibility public;
     }
     member {
         name baud_rate;
         type unsigned long;
         default 9600;
+        visibility public;
+    }
+    member {
+        name is_plus;
+        type bool;
+        default true;
         visibility public;
     }
     member {
