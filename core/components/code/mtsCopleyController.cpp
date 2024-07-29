@@ -777,18 +777,25 @@ bool mtsCopleyController::CheckAxisLabel(unsigned int axis) const
     if (!m_config.axes[axis].axis_label.empty()) {
         // If axis_label specified in JSON file, look for a match (case-insensitive)
 #if (CISST_OS == CISST_WINDOWS)
-        if (_stricmp(m_config.axes[axis].axis_label.c_str(), mAxisLabel[axis].c_str()) == 0) {
+        if (_stricmp(m_config.axes[axis].axis_label.c_str(), mAxisLabel[axis].c_str()) == 0)
 #else
-        if (strcasecmp(m_config.axes[axis].axis_label.c_str(), mAxisLabel[axis].c_str()) == 0) {
+        if (strcasecmp(m_config.axes[axis].axis_label.c_str(), mAxisLabel[axis].c_str()) == 0)
 #endif
-            mInterface->SendStatus(GetName() + ": axis label " + mAxisLabel[axis]);
+        {
+            mInterface->SendStatus(GetName() + ", " + mSerialPort.GetPortName() +
+                                   ": axis label " + mAxisLabel[axis]);
         }
         else {
             ret = false;
-            mInterface->SendError(GetName() + ": inconsistent axis label, json=["
+            mInterface->SendError(GetName() + ", " + mSerialPort.GetPortName() +
+                                  ": inconsistent axis label, json=["
                                   + m_config.axes[axis].axis_label + "], drive=["
                                   + mAxisLabel[axis] + "]");
         }
+    }
+    else {
+        mInterface->SendStatus(GetName() + ", " + mSerialPort.GetPortName() +
+                               ": axis label not specified");
     }
     return ret;
 }

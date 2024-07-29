@@ -49,7 +49,8 @@ class CISST_EXPORT mtsCopleyController : public mtsTaskContinuous
     mtsCopleyController(const mtsTaskContinuousConstructorArg &arg);
 
     // This constructor is used to set the serial port name and baud rate, rather than specifying them
-    // in JSON configuration file.
+    // in the JSON configuration file. In the future, this may be changed from a port name to a port number,
+    // for a more portable solution.
     mtsCopleyController(const std::string &name, const std::string &port_name, unsigned long baud_rate);
 
     ~mtsCopleyController();
