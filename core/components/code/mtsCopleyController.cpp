@@ -750,8 +750,15 @@ void mtsCopleyController::SendCommandRet(const std::string &cmdString, std::stri
 {
 #ifndef SIMULATION
     if (mSerialPort.IsOpened()) {
-        int nSent = mSerialPort.Write(cmdString+"\r");
-        if (nSent != static_cast<int>(cmdString.size()+1)) {
+        int len = static_cast<int>(cmdString.size());
+        int nSent = mSerialPort.Write(cmdString);
+        // Add CR ('\r') if not already in cmdString
+        if (cmdString[len-1] != '\r') {
+            char cr = '\r';
+            len++;
+            nSent += mSerialPort.Write(&cr, 1);
+        }
+        if (nSent != len) {
             CMN_LOG_CLASS_RUN_ERROR << "Failed to write " << cmdString << std::endl;
             retString.assign("Failed to write command");
             return;
