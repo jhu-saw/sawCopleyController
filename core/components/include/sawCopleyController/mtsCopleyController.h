@@ -91,8 +91,9 @@ protected:
 
     unsigned int mTicks;                    // Counts number of loops
 
-    vctLongVec mPosRaw;
-    vctDoubleVec mPos;
+    vctLongVec mPosRaw;                     // Measured joint position (bits)
+    vctDoubleVec mPosOffset;                // Joint position offset (SI)
+    vctLongVec mHomeOffsetRaw;              // Raw home position
     vctLongVec mStatus;                     // Drive status
     vctLongVec mFault;                      // Fault status
     prmConfigurationJoint m_config_j;       // Joint configuration

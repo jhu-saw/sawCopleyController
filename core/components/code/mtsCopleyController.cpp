@@ -241,6 +241,10 @@ void mtsCopleyController::Configure(const std::string& fileName)
     // Raw encoder position
     mPosRaw.SetSize(mNumAxes);
     mPosRaw.SetAll(0);
+    mPosOffset.SetSize(mNumAxes);
+    mPosOffset.SetAll(0.0);
+    mHomeOffsetRaw.SetSize(mNumAxes);
+    mHomeOffsetRaw.SetAll(0);
     // We have position for measured_js and setpoint_js
     m_measured_js.Name().SetSize(mNumAxes);
     m_measured_js.Position().SetSize(mNumAxes);
@@ -292,6 +296,12 @@ void mtsCopleyController::Configure(const std::string& fileName)
             mDispScale[axis] = 1.0;
             mDispUnits[axis].assign("cnts");
         }
+        // mPosOffset is the position offset, in SI units
+        mPosOffset[axis] = m_config.axes[axis].position_bits_to_SI.offset/mDispScale[axis];
+        // Compute home position in bits. Note that we have to subtract the offset, then convert from
+        // Display Units (mm or deg) to SI units (m or rad), from SI units to bits, and then negate.
+        mHomeOffsetRaw[axis] = -static_cast<long>((m_config.axes[axis].home_pos - m_config.axes[axis].position_bits_to_SI.offset)
+                                                  * m_config.axes[axis].position_bits_to_SI.scale/mDispScale[axis]);
     }
 
     StateTable.AddData(mTicks, "ticks");
@@ -419,7 +429,8 @@ void mtsCopleyController::Run()
         for (axis = 0; axis < mNumAxes; axis++) {
             if (ParameterGet(0x32, value, axis) == 0) {   // measured position
                 mPosRaw[axis] = value;
-                m_measured_js.Position()[axis] = mPosRaw[axis]/m_config.axes[axis].position_bits_to_SI.scale;
+                m_measured_js.Position()[axis] = (mPosRaw[axis]/m_config.axes[axis].position_bits_to_SI.scale)
+                                                 + mPosOffset[axis];
             }
             if (ParameterGet(0x0c, value, axis) == 0) {  // measured current
                 // Units of 0.01 Amps, so divide by 100 to get Amps
@@ -854,7 +865,7 @@ void mtsCopleyController::move_common(const char *cmdName, const vctDoubleVec &g
             mInterface->SendError(GetName()+msgBuf);
             return;
         }
-        long goalCnts = static_cast<long>(goal[axis]*m_config.axes[axis].position_bits_to_SI.scale);
+        long goalCnts = static_cast<long>((goal[axis]-mPosOffset[axis])*m_config.axes[axis].position_bits_to_SI.scale);
 #ifndef SIMULATION
         if (ParameterSet(0xca, goalCnts, axis) != 0) {
             sprintf(msgBuf, ": %s: failed to set position goal to %ld for axis %d", cmdName, goalCnts, axis);
@@ -988,10 +999,7 @@ void mtsCopleyController::Home(const vctBoolVec &mask)
     for (axis = 0; axis < mNumAxes; axis++) {
         if (mask[axis]) {
             // Set home offset
-            long homeOffsetRaw = static_cast<long>(m_config.axes[axis].home_pos*m_config.axes[axis].position_bits_to_SI.scale);
-            // sprintf(msgBuf, "Home: setting home offset for axis %d to %ld", axis, homeOffsetRaw);
-            // mInterface->SendStatus(msgBuf);
-            ParameterSet(0xc6, homeOffsetRaw, axis);
+            ParameterSet(0xc6, mHomeOffsetRaw[axis], axis);
             long desiredState = -1;
             ParameterGet(0x24, desiredState, axis);
             if (desiredState != 21) {

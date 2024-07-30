@@ -32,7 +32,7 @@ copleyServer->Configure(config_file);
 
 The disadvantage of the first approach is that the serial port is specified in the JSON file; on some operating systems, the serial ports may be reassigned when the system is power-cycled. The disadvantage of the second approach (besides its greater complexity) is that the axis label (parameter 0x92) must be programmed in the Flash memory of the Copley controller.
 
-The JSON file contains the following fields:
+The JSON file contains the following fields, where DU indicates Display Units (e.g., millimeters, degrees), rather than SI units (e.g., meters, radians):
 
 | Keyword      | Default   | Description                                     |
 |:-------------|:----------|:------------------------------------------------|
@@ -46,14 +46,14 @@ The JSON file contains the following fields:
 | axes         |           | Array of axis configuration data (see below)    |
 |  - type      |           | - "PRISMATIC" or "REVOLUTE"                     |
 |  - position_bits_to_SI |  | - conversion scale and offset (*)              |
-|  -- scale    | 1         | -- scale factor                                 |
-|  -- offset   | 0         | -- offset (currently not used)                  |
-|  - home_pos  | 0         | - home position, in SI units (**)               |
+|  -- scale    | 1         | -- scale factor (bits to SI)                    |
+|  -- offset   | 0         | -- offset (DU)                                  |
+|  - home_pos  | 0         | - home position, in DU (**)                     |
 |  - position_limits |     | - upper and lower joint position limits         |
-|  -- lower    | -MAX      | -- lower position limit                         |
-|  -- upper    | +MAX      | -- upper position limit                         |
+|  -- lower    | -MAX      | -- lower position limit (DU)                    |
+|  -- upper    | +MAX      | -- upper position limit (DU)                    |
 |  - axis_label | ""       | - axis label on drive (parameter 0x92)          |
 
-(*) The conversion (position_bits_to_SI) is applied as follows:  value_SI = value_bits/scale.
+(*) The conversion (position_bits_to_SI) is applied as follows:  value_SI = value_bits/scale + offset_SI, where offset_SI is computed by converting offset from Display Units (mm or deg) to SI (m or rad). Thus, value_bits = (value_SI - offset_SI)*scale. Note that the offset is only used for positions, not for velocities, accelerations or decelerations.
 
-(**) The home position is specified in the JSON file for convenience, and is used to set the home offset parameter (0xc6) on the drive; any setting of 0xc6 in the CCX file is ignored.
+(**) The home position is specified in the JSON file, rather than the CCX file, and is used to set the home offset parameter (0xc6) on the drive; any setting of 0xc6 in the CCX file is ignored. Note that the software negates the home_pos value because the Copley controller treats it as an offset TO the zero position, rather than as an offset FROM the zero position.
