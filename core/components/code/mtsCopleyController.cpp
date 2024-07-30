@@ -90,8 +90,8 @@ bool mtsCopleyController::InitSerialPort(const std::string &port_name, unsigned 
     mSerialPort.SetPortName(port_name);
     // Default constructor sets port to 9600 baud, N,8,1
     if (!mSerialPort.Open()) {
-        mInterface->SendError(GetName() + ": failed to open serial port: "
-                                        + mSerialPort.GetPortName());
+        CMN_LOG_CLASS_INIT_ERROR << GetName() << ": failed to open serial port: "
+                                 << mSerialPort.GetPortName() << std::endl;
         return false;
     }
     mSerialPort.Configure();
@@ -184,7 +184,8 @@ void mtsCopleyController::SetupInterfaces(void)
 void mtsCopleyController::Close()
 {
 #ifndef SIMULATION
-    mSerialPort.Close();
+    if (mSerialPort.IsOpened())
+        mSerialPort.Close();
 #endif
 }
 
