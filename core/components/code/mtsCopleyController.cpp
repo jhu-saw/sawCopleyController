@@ -1053,6 +1053,7 @@ void mtsCopleyController::ClearFault()
 
 void mtsCopleyController::CheckAxisLabels(void)
 {
+    mInterface->SendStatus(GetName() + ": sawCopleyController Version " + sawCopleyController_VERSION);
     unsigned int axis;
     for (axis = 0; axis < mNumAxes; axis++) {
         CheckAxisLabel(axis);
