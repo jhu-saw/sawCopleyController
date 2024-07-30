@@ -163,6 +163,7 @@ void mtsCopleyController::SetupInterfaces(void)
 
         mInterface->AddCommandRead(&mtsCopleyController::GetConfigured, this, "GetConfigured");
         mInterface->AddCommandRead(&mtsCopleyController::GetConnected, this, "GetConnected");
+        mInterface->AddCommandRead(&mtsCopleyController::GetVersion, this, "GetVersion");
         mInterface->AddCommandWriteReturn(&mtsCopleyController::SendCommandRet, this, "SendCommandRet");
         mInterface->AddCommandReadState(this->StateTable, mStatus, "GetStatus");
         mInterface->AddCommandReadState(this->StateTable, mFault,  "GetFault");
@@ -344,18 +345,10 @@ void mtsCopleyController::Configure(const std::string& fileName)
     configOK = true;
 }
 
-void mtsCopleyController::Startup()
+// Query parameters from Copley controller. This is a separate function so that it can
+// be called from Startup and from CommandLoadCCX.
+void mtsCopleyController::QueryDrive()
 {
-    if (!configOK) {
-        CMN_LOG_CLASS_INIT_WARNING << GetName() << ": Startup called for invalid configuration" << std::endl;
-    }
-    if (m_config.load_ccx && !m_config.ccx_file.empty()) {
-        std::string fullPath = mConfigPath.Find(m_config.ccx_file);
-        if (!fullPath.empty()) {
-            CMN_LOG_CLASS_INIT_VERBOSE << "Loading drive data from " << m_config.ccx_file << std::endl;
-            LoadCCX(fullPath);
-        }
-    }
     bool isAllHomed = true;
     unsigned int axis;
     for (axis = 0; axis < mNumAxes; axis++) {
@@ -397,7 +390,24 @@ void mtsCopleyController::Startup()
         }
         if (!mIsHomed[axis])
             isAllHomed = false;
+    }
+    m_op_state.SetIsHomed(isAllHomed);
+}
+
+void mtsCopleyController::Startup()
+{
+    if (!configOK) {
+        CMN_LOG_CLASS_INIT_WARNING << GetName() << ": Startup called for invalid configuration" << std::endl;
+    }
+    if (m_config.load_ccx && !m_config.ccx_file.empty()) {
+        std::string fullPath = mConfigPath.Find(m_config.ccx_file);
+        if (!fullPath.empty()) {
+            CMN_LOG_CLASS_INIT_VERBOSE << "Loading drive data from " << m_config.ccx_file << std::endl;
+            LoadCCX(fullPath);
+        }
+    }
 #ifndef SIMULATION
+    for (unsigned int axis = 0; axis < mNumAxes; axis++) {
         // Query the axis label (string).
         std::string label;
         if (ParameterGetString(0x92, label, axis) == 0) {
@@ -409,9 +419,10 @@ void mtsCopleyController::Startup()
         else {
             CMN_LOG_CLASS_INIT_ERROR << "Startup: failed to get axis label" << std::endl;
         }
-#endif
     }
-    m_op_state.SetIsHomed(isAllHomed);
+#endif
+    // Read parameters (speed, accel, decel, home) from drive
+    QueryDrive();
 }
 
 void mtsCopleyController::Run()
@@ -1061,7 +1072,6 @@ void mtsCopleyController::ClearFault()
 
 void mtsCopleyController::CheckAxisLabels(void)
 {
-    mInterface->SendStatus(GetName() + ": sawCopleyController Version " + sawCopleyController_VERSION);
     unsigned int axis;
     for (axis = 0; axis < mNumAxes; axis++) {
         CheckAxisLabel(axis);
