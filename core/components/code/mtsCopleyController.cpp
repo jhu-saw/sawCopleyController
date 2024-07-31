@@ -1326,6 +1326,7 @@ void mtsCopleyController::CommandLoadCCX(void)
         if (!fullPath.empty()) {
             if (LoadCCX(fullPath)) {
                 mInterface->SendStatus("Finished loading drive data");
+                QueryDrive();
             }
             else {
                 mInterface->SendError("Failed to load drive data (check log)");
