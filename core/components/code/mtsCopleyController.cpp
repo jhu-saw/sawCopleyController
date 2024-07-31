@@ -90,8 +90,8 @@ bool mtsCopleyController::InitSerialPort(const std::string &port_name, unsigned 
     mSerialPort.SetPortName(port_name);
     // Default constructor sets port to 9600 baud, N,8,1
     if (!mSerialPort.Open()) {
-        mInterface->SendError(GetName() + ": failed to open serial port: "
-                                        + mSerialPort.GetPortName());
+        CMN_LOG_CLASS_INIT_ERROR << GetName() << ": failed to open serial port: "
+                                 << mSerialPort.GetPortName() << std::endl;
         return false;
     }
     mSerialPort.Configure();
@@ -163,6 +163,7 @@ void mtsCopleyController::SetupInterfaces(void)
 
         mInterface->AddCommandRead(&mtsCopleyController::GetConfigured, this, "GetConfigured");
         mInterface->AddCommandRead(&mtsCopleyController::GetConnected, this, "GetConnected");
+        mInterface->AddCommandRead(&mtsCopleyController::GetVersion, this, "GetVersion");
         mInterface->AddCommandWriteReturn(&mtsCopleyController::SendCommandRet, this, "SendCommandRet");
         mInterface->AddCommandReadState(this->StateTable, mStatus, "GetStatus");
         mInterface->AddCommandReadState(this->StateTable, mFault,  "GetFault");
@@ -184,7 +185,8 @@ void mtsCopleyController::SetupInterfaces(void)
 void mtsCopleyController::Close()
 {
 #ifndef SIMULATION
-    mSerialPort.Close();
+    if (mSerialPort.IsOpened())
+        mSerialPort.Close();
 #endif
 }
 
@@ -240,6 +242,10 @@ void mtsCopleyController::Configure(const std::string& fileName)
     // Raw encoder position
     mPosRaw.SetSize(mNumAxes);
     mPosRaw.SetAll(0);
+    mPosOffset.SetSize(mNumAxes);
+    mPosOffset.SetAll(0.0);
+    mHomeOffsetRaw.SetSize(mNumAxes);
+    mHomeOffsetRaw.SetAll(0);
     // We have position for measured_js and setpoint_js
     m_measured_js.Name().SetSize(mNumAxes);
     m_measured_js.Position().SetSize(mNumAxes);
@@ -291,6 +297,12 @@ void mtsCopleyController::Configure(const std::string& fileName)
             mDispScale[axis] = 1.0;
             mDispUnits[axis].assign("cnts");
         }
+        // mPosOffset is the position offset, in SI units
+        mPosOffset[axis] = m_config.axes[axis].position_bits_to_SI.offset/mDispScale[axis];
+        // Compute home position in bits. Note that we have to subtract the offset, then convert from
+        // Display Units (mm or deg) to SI units (m or rad), from SI units to bits, and then negate.
+        mHomeOffsetRaw[axis] = -static_cast<long>((m_config.axes[axis].home_pos - m_config.axes[axis].position_bits_to_SI.offset)
+                                                  * m_config.axes[axis].position_bits_to_SI.scale/mDispScale[axis]);
     }
 
     StateTable.AddData(mTicks, "ticks");
@@ -333,18 +345,10 @@ void mtsCopleyController::Configure(const std::string& fileName)
     configOK = true;
 }
 
-void mtsCopleyController::Startup()
+// Query parameters from Copley controller. This is a separate function so that it can
+// be called from Startup and from CommandLoadCCX.
+void mtsCopleyController::QueryDrive()
 {
-    if (!configOK) {
-        CMN_LOG_CLASS_INIT_WARNING << GetName() << ": Startup called for invalid configuration" << std::endl;
-    }
-    if (m_config.load_ccx && !m_config.ccx_file.empty()) {
-        std::string fullPath = mConfigPath.Find(m_config.ccx_file);
-        if (!fullPath.empty()) {
-            CMN_LOG_CLASS_INIT_VERBOSE << "Loading drive data from " << m_config.ccx_file << std::endl;
-            LoadCCX(fullPath);
-        }
-    }
     bool isAllHomed = true;
     unsigned int axis;
     for (axis = 0; axis < mNumAxes; axis++) {
@@ -386,7 +390,24 @@ void mtsCopleyController::Startup()
         }
         if (!mIsHomed[axis])
             isAllHomed = false;
+    }
+    m_op_state.SetIsHomed(isAllHomed);
+}
+
+void mtsCopleyController::Startup()
+{
+    if (!configOK) {
+        CMN_LOG_CLASS_INIT_WARNING << GetName() << ": Startup called for invalid configuration" << std::endl;
+    }
+    if (m_config.load_ccx && !m_config.ccx_file.empty()) {
+        std::string fullPath = mConfigPath.Find(m_config.ccx_file);
+        if (!fullPath.empty()) {
+            CMN_LOG_CLASS_INIT_VERBOSE << "Loading drive data from " << m_config.ccx_file << std::endl;
+            LoadCCX(fullPath);
+        }
+    }
 #ifndef SIMULATION
+    for (unsigned int axis = 0; axis < mNumAxes; axis++) {
         // Query the axis label (string).
         std::string label;
         if (ParameterGetString(0x92, label, axis) == 0) {
@@ -398,9 +419,10 @@ void mtsCopleyController::Startup()
         else {
             CMN_LOG_CLASS_INIT_ERROR << "Startup: failed to get axis label" << std::endl;
         }
-#endif
     }
-    m_op_state.SetIsHomed(isAllHomed);
+#endif
+    // Read parameters (speed, accel, decel, home) from drive
+    QueryDrive();
 }
 
 void mtsCopleyController::Run()
@@ -418,7 +440,8 @@ void mtsCopleyController::Run()
         for (axis = 0; axis < mNumAxes; axis++) {
             if (ParameterGet(0x32, value, axis) == 0) {   // measured position
                 mPosRaw[axis] = value;
-                m_measured_js.Position()[axis] = mPosRaw[axis]/m_config.axes[axis].position_bits_to_SI.scale;
+                m_measured_js.Position()[axis] = (mPosRaw[axis]/m_config.axes[axis].position_bits_to_SI.scale)
+                                                 + mPosOffset[axis];
             }
             if (ParameterGet(0x0c, value, axis) == 0) {  // measured current
                 // Units of 0.01 Amps, so divide by 100 to get Amps
@@ -749,8 +772,15 @@ void mtsCopleyController::SendCommandRet(const std::string &cmdString, std::stri
 {
 #ifndef SIMULATION
     if (mSerialPort.IsOpened()) {
-        int nSent = mSerialPort.Write(cmdString+"\r");
-        if (nSent != static_cast<int>(cmdString.size()+1)) {
+        int len = static_cast<int>(cmdString.size());
+        int nSent = mSerialPort.Write(cmdString);
+        // Add CR ('\r') if not already in cmdString
+        if (cmdString[len-1] != '\r') {
+            char cr = '\r';
+            len++;
+            nSent += mSerialPort.Write(&cr, 1);
+        }
+        if (nSent != len) {
             CMN_LOG_CLASS_RUN_ERROR << "Failed to write " << cmdString << std::endl;
             retString.assign("Failed to write command");
             return;
@@ -846,7 +876,7 @@ void mtsCopleyController::move_common(const char *cmdName, const vctDoubleVec &g
             mInterface->SendError(GetName()+msgBuf);
             return;
         }
-        long goalCnts = static_cast<long>(goal[axis]*m_config.axes[axis].position_bits_to_SI.scale);
+        long goalCnts = static_cast<long>((goal[axis]-mPosOffset[axis])*m_config.axes[axis].position_bits_to_SI.scale);
 #ifndef SIMULATION
         if (ParameterSet(0xca, goalCnts, axis) != 0) {
             sprintf(msgBuf, ": %s: failed to set position goal to %ld for axis %d", cmdName, goalCnts, axis);
@@ -980,10 +1010,7 @@ void mtsCopleyController::Home(const vctBoolVec &mask)
     for (axis = 0; axis < mNumAxes; axis++) {
         if (mask[axis]) {
             // Set home offset
-            long homeOffsetRaw = static_cast<long>(m_config.axes[axis].home_pos*m_config.axes[axis].position_bits_to_SI.scale);
-            // sprintf(msgBuf, "Home: setting home offset for axis %d to %ld", axis, homeOffsetRaw);
-            // mInterface->SendStatus(msgBuf);
-            ParameterSet(0xc6, homeOffsetRaw, axis);
+            ParameterSet(0xc6, mHomeOffsetRaw[axis], axis);
             long desiredState = -1;
             ParameterGet(0x24, desiredState, axis);
             if (desiredState != 21) {

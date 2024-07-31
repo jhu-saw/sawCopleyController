@@ -91,8 +91,9 @@ protected:
 
     unsigned int mTicks;                    // Counts number of loops
 
-    vctLongVec mPosRaw;
-    vctDoubleVec mPos;
+    vctLongVec mPosRaw;                     // Measured joint position (bits)
+    vctDoubleVec mPosOffset;                // Joint position offset (SI)
+    vctLongVec mHomeOffsetRaw;              // Raw home position
     vctLongVec mStatus;                     // Drive status
     vctLongVec mFault;                      // Fault status
     prmConfigurationJoint m_config_j;       // Joint configuration
@@ -118,6 +119,7 @@ protected:
 
     void SetupInterfaces();
     bool LoadCCX(const std::string &fileName);
+    void QueryDrive();
 
     // Read until CR ('\r') or timeout
     int ReadUntilCR(char *respBuf, size_t respSize, double timeout_s = 0.1);
@@ -146,6 +148,8 @@ protected:
     void GetConfigured(bool &val) const
     { val = configOK; }
     void GetConnected(bool &val) const;
+    void GetVersion(std::string &ver) const
+    { ver = sawCopleyController_VERSION; }
     void SendCommandRet(const std::string& cmdString, std::string &retString);
 
     // Get joint configuration

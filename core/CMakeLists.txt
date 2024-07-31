@@ -10,7 +10,7 @@
 # --- end cisst license ---
 
 cmake_minimum_required(VERSION 3.10)
-project (sawCopleyControllerCore VERSION 0.0.1)
+project (sawCopleyControllerCore)
 
 # to locate cisst macros
 find_package (cisst REQUIRED cisstCommon)
