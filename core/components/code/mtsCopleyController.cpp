@@ -196,10 +196,20 @@ void mtsCopleyController::Configure(const std::string& fileName)
 
     mConfigPath.Set(cmnPath::GetWorkingDirectory());
     std::string fullname = mConfigPath.Find(fileName);
-    std::string configDir = fullname.substr(0, fullname.find_last_of('/'));
-    CMN_LOG_CLASS_INIT_VERBOSE << "Configure: setting mConfigPath to " << configDir
-                               << " for file " << fileName << std::endl;
-    mConfigPath.Add(configDir, cmnPath::HEAD);
+    // Handle either forward slash or backslash for directory separator,
+    // since on Windows there can be a mix of them.
+    size_t last_sep = fullname.find_last_of('/');
+    size_t last_sep2 = fullname.find_last_of('\\');
+    if (last_sep == std::string::npos)
+        last_sep = last_sep2;
+    else if ((last_sep2 != std::string::npos) && (last_sep2 > last_sep))
+        last_sep = last_sep2;
+    if (last_sep != std::string::npos) {
+        std::string configDir = fullname.substr(0, last_sep);
+        CMN_LOG_CLASS_INIT_VERBOSE << "Configure: setting mConfigPath to " << configDir
+                                   << " for file " << fileName << std::endl;
+        mConfigPath.Add(configDir, cmnPath::HEAD);
+    }
 
     configOK = false;
     std::ifstream jsonStream;
