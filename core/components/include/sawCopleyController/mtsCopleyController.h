@@ -142,7 +142,10 @@ protected:
 
     // Performs some common checks, such as whether vector size matches mNumAxes (if vsize != 0)
     // and whether configOK and copleyOK are true.
-    bool CheckCommand(const std::string &cmdName, size_t vsize = 0) const;
+    bool CheckCommand(const char *cmdName, size_t vsize = 0) const;
+
+    // Check whether operating state is ENABLED
+    bool CheckOpStateEnabled(const char *cmdName) const;
 
     // Methods for provided interface
     void GetConfigured(bool &val) const
@@ -156,10 +159,16 @@ protected:
     void GetConfig_js(prmConfigurationJoint &cfg_j) const
     { cfg_j = m_config_j; }
 
+    // Set operating state
+    void state_command(const std::string &command);
+
     void move_jp(const prmPositionJointSet &goal);
     void move_jr(const prmPositionJointSet &goal);
 
     void move_common(const char *cmdName, const vctDoubleVec &goal, unsigned int profile_type);
+
+    // Hold joint at current position (Stop)
+    void hold(void);
 
     // Set speed, acceleration and deceleration
     void SetSpeed(const vctDoubleVec &spd);

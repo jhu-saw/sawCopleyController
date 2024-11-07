@@ -145,36 +145,45 @@ void mtsCopleyController::SetupInterfaces(void)
         mInterface->AddMessageEvents();
 
         // Stats
-        mInterface->AddCommandReadState(StateTable, mTicks, "GetTicks");
         mInterface->AddCommandReadState(StateTable, StateTable.PeriodStats, "period_statistics");
-
-        mInterface->AddCommandReadState(this->StateTable, mPosRaw, "GetPositionRaw");
 
         // Standard CRTK interfaces
         mInterface->AddCommandReadState(this->StateTable, m_measured_js, "measured_js");
         mInterface->AddCommandReadState(this->StateTable, m_op_state, "operating_state");
         mInterface->AddCommandWrite(&mtsCopleyController::move_jp, this, "move_jp");
         mInterface->AddCommandWrite(&mtsCopleyController::move_jr, this, "move_jr");
+        mInterface->AddCommandVoid(&mtsCopleyController::hold, this, "hold");
         mInterface->AddCommandRead(&mtsCopleyController::GetConfig_js, this, "configuration_js");
+        mInterface->AddCommandWrite(&mtsCopleyController::state_command, this, "state_command", std::string(""));
         mInterface->AddEventWrite(operating_state, "operating_state", prmOperatingState());
 
-        mInterface->AddCommandVoid(&mtsCopleyController::EnableMotorPower, this, "EnableMotorPower");
-        mInterface->AddCommandVoid(&mtsCopleyController::DisableMotorPower, this, "DisableMotorPower");
-
-        mInterface->AddCommandRead(&mtsCopleyController::GetConfigured, this, "GetConfigured");
-        mInterface->AddCommandRead(&mtsCopleyController::GetConnected, this, "GetConnected");
-        mInterface->AddCommandRead(&mtsCopleyController::GetVersion, this, "GetVersion");
-        mInterface->AddCommandWriteReturn(&mtsCopleyController::SendCommandRet, this, "SendCommandRet");
-        mInterface->AddCommandReadState(this->StateTable, mStatus, "GetStatus");
-        mInterface->AddCommandReadState(this->StateTable, mFault,  "GetFault");
+        // Should be incorporated into CRTK, but perhaps as set_planner_params_j, get_planner_params_j
         mInterface->AddCommandReadState(this->StateTable, mSpeed, "GetSpeed");
         mInterface->AddCommandReadState(this->StateTable, mAccel, "GetAccel");
         mInterface->AddCommandReadState(this->StateTable, mDecel, "GetDecel");
         mInterface->AddCommandWrite(&mtsCopleyController::SetSpeed, this, "SetSpeed");
         mInterface->AddCommandWrite(&mtsCopleyController::SetAccel, this, "SetAccel");
         mInterface->AddCommandWrite(&mtsCopleyController::SetDecel, this, "SetDecel");
+
+        // Maybe incorporate into CRTK
+        mInterface->AddCommandWrite(&mtsCopleyController::Home, this, "Home");  // Home specific axes
+
+        // Soon to be deprecated
+        mInterface->AddCommandRead(&mtsCopleyController::GetConnected, this, "GetConnected");
+
+        // Deprecated
+        mInterface->AddCommandVoid(&mtsCopleyController::EnableMotorPower, this, "EnableMotorPower");
+        mInterface->AddCommandVoid(&mtsCopleyController::DisableMotorPower, this, "DisableMotorPower");
         mInterface->AddCommandVoid(&mtsCopleyController::HomeAll, this, "Home");
-        mInterface->AddCommandWrite(&mtsCopleyController::Home, this, "Home");
+
+        // Copley-specific
+        mInterface->AddCommandRead(&mtsCopleyController::GetConfigured, this, "GetConfigured");
+        mInterface->AddCommandReadState(StateTable, mTicks, "GetTicks");
+        mInterface->AddCommandRead(&mtsCopleyController::GetVersion, this, "GetVersion");
+        mInterface->AddCommandReadState(this->StateTable, mPosRaw, "GetPositionRaw");
+        mInterface->AddCommandWriteReturn(&mtsCopleyController::SendCommandRet, this, "SendCommandRet");
+        mInterface->AddCommandReadState(this->StateTable, mStatus, "GetStatus");
+        mInterface->AddCommandReadState(this->StateTable, mFault,  "GetFault");
         mInterface->AddCommandVoid(&mtsCopleyController::ClearFault, this, "ClearFault");
         mInterface->AddCommandRead(&mtsCopleyController::GetAxisLabel, this, "GetAxisLabel");
         mInterface->AddCommandVoid(&mtsCopleyController::CommandLoadCCX, this, "LoadCCX");
@@ -842,7 +851,7 @@ bool mtsCopleyController::CheckAxisLabel(unsigned int axis) const
     return ret;
 }
 
-bool mtsCopleyController::CheckCommand(const std::string &cmdName, size_t vsize) const
+bool mtsCopleyController::CheckCommand(const char *cmdName, size_t vsize) const
 {
     if ((vsize != 0) && (vsize != mNumAxes)) {
         mInterface->SendError(GetName() + ": size mismatch in " + std::string(cmdName));
@@ -856,6 +865,24 @@ bool mtsCopleyController::CheckCommand(const std::string &cmdName, size_t vsize)
     GetConnected(copleyOK);
     if (!copleyOK) {
         mInterface->SendError(GetName() + ": not connected to drive");
+        return false;
+    }
+    return true;
+}
+
+bool mtsCopleyController::CheckOpStateEnabled(const char *cmdName) const
+{
+    if (m_op_state.State() != prmOperatingState::ENABLED) {
+        std::string curState;
+        try {
+            curState.assign(prmOperatingState::StateTypeToString(m_op_state.State()));
+        }
+        catch (std::runtime_error &e) {
+            curState.assign(e.what());
+        }
+        char buf[64];
+        sprintf(buf, ": %s: robot not ENABLED, current state is ", cmdName);
+        mInterface->SendError(GetName()+buf+curState);
         return false;
     }
     return true;
@@ -877,6 +904,9 @@ void mtsCopleyController::move_common(const char *cmdName, const vctDoubleVec &g
                                       unsigned int profile_type)
 {
     if (!CheckCommand(cmdName, goal.size()))
+        return;
+
+    if (!CheckOpStateEnabled(cmdName))
         return;
 
     unsigned int axis;
@@ -928,6 +958,27 @@ void mtsCopleyController::move_common(const char *cmdName, const vctDoubleVec &g
         }
         else {
             sprintf(msgBuf, ": %s: axis %d, error %d", cmdName, axis, rc);
+            mInterface->SendError(GetName()+msgBuf);
+        }
+    }
+}
+
+void mtsCopleyController::hold(void)
+{
+    if (!CheckOpStateEnabled("hold"))
+        return;
+
+    for (unsigned int axis = 0; axis < mNumAxes; axis++) {
+        int rc;
+        if (mNumAxes == 1) {
+            rc = SendCommand("t 0\r", 4);
+        }
+        else {
+            sprintf(cmdBuf, ".%c t 0\r", 'A'+axis);
+            rc = SendCommand(cmdBuf, 7);
+        }
+        if (rc != 0) {
+            sprintf(msgBuf, ": hold: axis %d, error %d", axis, rc);
             mInterface->SendError(GetName()+msgBuf);
         }
     }
@@ -1000,9 +1051,54 @@ void mtsCopleyController::DisableMotorPower(void)
     }
 }
 
+void mtsCopleyController::state_command(const std::string &command)
+{
+    std::string humanReadableMessage;
+    prmOperatingState::StateType newOperatingState;
+    try {
+        if (m_op_state.ValidCommand(prmOperatingState::CommandTypeFromString(command),
+                                    newOperatingState, humanReadableMessage)) {
+            if (command == "enable") {
+                EnableMotorPower();
+                return;
+            }
+            if (command == "disable") {
+                DisableMotorPower();
+                return;
+            }
+            if (command == "home") {
+                HomeAll();
+                return;
+            }
+            if (command == "unhome") {
+                // Following clears local flag, but does not clear drive status
+                mIsHomed.SetAll(false);
+                return;
+            }
+            if (command == "pause") {
+                if (m_op_state.State() == prmOperatingState::ENABLED)
+                    hold();   // Stop motion
+                m_op_state.SetState(newOperatingState);
+                return;
+            }
+            if (command == "resume") {
+                m_op_state.SetState(newOperatingState);
+                return;
+            }
+        } else {
+            mInterface->SendWarning(GetName() + ": " + humanReadableMessage);
+        }
+    } catch (std::runtime_error &e) {
+        mInterface->SendWarning(GetName() + ": " + command + " doesn't seem to be a valid state_command (" + e.what() + ")");
+    }
+}
+
 void mtsCopleyController::HomeAll()
 {
     if (!CheckCommand("HomeAll"))
+        return;
+
+    if (!CheckOpStateEnabled("HomeAll"))
         return;
 
     vctBoolVec mask(mNumAxes, true);
@@ -1012,6 +1108,9 @@ void mtsCopleyController::HomeAll()
 void mtsCopleyController::Home(const vctBoolVec &mask)
 {
     if (!CheckCommand("Home", mask.size()))
+        return;
+
+    if (!CheckOpStateEnabled("Home"))
         return;
 
     unsigned int axis;
@@ -1050,7 +1149,7 @@ void mtsCopleyController::Home(const vctBoolVec &mask)
                 mIsHomed[axis] = false;
                 mState[axis] = ST_HOMING;
 #else
-                mIsHomed[axis] = true;;
+                mIsHomed[axis] = true;
                 mPosRaw[axis] = 0;
 #endif
             }
