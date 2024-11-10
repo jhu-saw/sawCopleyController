@@ -22,6 +22,25 @@ http://www.cisst.org/cisst/license.txt.
 #include <cisstOSAbstraction/osaGetTime.h>
 #include <sawCopleyController/mtsCopleyController.h>
 
+// Bit masks for Status (0xa0)
+// For a full list, see Copley Manual
+
+const uint32_t StatusPosLimit      = (1<<9);
+const uint32_t StatusNegLimit      = (1<<10);
+const uint32_t StatusDriveDisabled = (1<<12);
+const uint32_t StatusDriveFault    = (1<<22);
+const uint32_t StatusHomeSwitch    = (1<<26);
+const uint32_t StatusInMotion      = (1<<27);
+
+// Bit masks for Trajectory Status (0xc9)
+// For a full list, see Copley Manual
+
+const uint32_t TrajStatusHomingError = (1<<11);
+const uint32_t TrajStatusIsHomed     = (1<<12);
+const uint32_t TrajStatusHoming      = (1<<13);
+const uint32_t TrajStatusMoveAborted = (1<<14);
+const uint32_t TrajStatusInMotion    = (1<<15);
+
 // Scale factors
 const double CurrentBitsToAmps = 0.01;
 const double VelocityBitsToCps = 0.1;        // counts/second
@@ -157,6 +176,9 @@ void mtsCopleyController::SetupInterfaces(void)
         mInterface->AddCommandWrite(&mtsCopleyController::state_command, this, "state_command", std::string(""));
         mInterface->AddEventWrite(operating_state, "operating_state", prmOperatingState());
 
+        // Should be incorporated into CRTK, but perhaps as measured_jx or measured_js_ext
+        mInterface->AddCommandReadState(this->StateTable, mActuatorState, "GetActuatorState");
+
         // Should be incorporated into CRTK, but perhaps as set_planner_params_j, get_planner_params_j
         mInterface->AddCommandReadState(this->StateTable, mSpeed, "GetSpeed");
         mInterface->AddCommandReadState(this->StateTable, mAccel, "GetAccel");
@@ -274,6 +296,19 @@ void mtsCopleyController::Configure(const std::string& fileName)
     m_setpoint_js.Name().SetSize(mNumAxes);
     m_setpoint_js.Position().SetSize(mNumAxes);
     m_setpoint_js.Position().SetAll(0.0);
+    // Actuator state
+    mActuatorState.Position().SetSize(mNumAxes);
+    mActuatorState.Position().SetAll(0.0);
+    mActuatorState.MotorOff().SetSize(mNumAxes);
+    mActuatorState.MotorOff().SetAll(true);
+    mActuatorState.InMotion().SetSize(mNumAxes);
+    mActuatorState.InMotion().SetAll(false);
+    mActuatorState.HardFwdLimitHit().SetSize(mNumAxes);
+    mActuatorState.HardFwdLimitHit().SetAll(false);
+    mActuatorState.HardRevLimitHit().SetSize(mNumAxes);
+    mActuatorState.HardRevLimitHit().SetAll(false);
+    mActuatorState.HomeSwitchOn().SetSize(mNumAxes);
+    mActuatorState.HomeSwitchOn().SetAll(false);
     // Status
     mStatus.SetSize(mNumAxes);
     mStatus.SetAll(0);
@@ -291,8 +326,6 @@ void mtsCopleyController::Configure(const std::string& fileName)
     // Internal state
     mState.SetSize(mNumAxes);
     mState.SetAll(ST_IDLE);
-    mIsHomed.SetSize(mNumAxes);
-    mIsHomed.SetAll(false);
 
     for (axis = 0; axis < mNumAxes; axis++) {
         sawCopleyControllerConfig::axis &axisData = m_config.axes[axis];
@@ -329,6 +362,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
     StateTable.AddData(m_measured_js, "measured_js");
     m_op_state.SetValid(true);
     StateTable.AddData(m_op_state, "op_state");
+    StateTable.AddData(mActuatorState, "actuator_state");
     StateTable.AddData(mStatus, "status");
     StateTable.AddData(mFault, "fault");
     StateTable.AddData(mSpeed, "speed");
@@ -405,9 +439,9 @@ void mtsCopleyController::QueryDrive()
         // Check whether axis is homed
         long trajStatus;
         if (ParameterGet(0xc9, trajStatus, axis) == 0) {
-            mIsHomed[axis] = trajStatus & (1<<12);
+            mActuatorState.IsHomed()[axis] = trajStatus & TrajStatusIsHomed;
         }
-        if (!mIsHomed[axis])
+        if (!mActuatorState.IsHomed()[axis])
             isAllHomed = false;
     }
     m_op_state.SetIsHomed(isAllHomed);
@@ -461,6 +495,7 @@ void mtsCopleyController::Run()
                 mPosRaw[axis] = value;
                 m_measured_js.Position()[axis] = (mPosRaw[axis]/m_config.axes[axis].position_bits_to_SI.scale)
                                                  + mPosOffset[axis];
+                mActuatorState.Position()[axis] = m_measured_js.Position()[axis];
             }
             if (ParameterGet(0x0c, value, axis) == 0) {  // measured current
                 // Units of 0.01 Amps, so divide by 100 to get Amps
@@ -469,14 +504,19 @@ void mtsCopleyController::Run()
             mFault[axis] = 0;    // Updated later if any fault detected
             if (ParameterGet(0xa0, value, axis) == 0) {   // drive status
                 mStatus[axis] = value;
-                if (value & (1<<12))
+                mActuatorState.MotorOff()[axis] = (value & StatusDriveDisabled);
+                if (value & StatusDriveDisabled)
                     isAnyDisabled = true;
-                if (value & (1<<22))
+                if (value & StatusDriveFault)
                     isAnyFault = true;
-                if (value & (1<<27))
+                mActuatorState.InMotion()[axis] = (value & StatusInMotion);
+                if (value & StatusInMotion)
                     isAnyMoving = true;
+                mActuatorState.HardFwdLimitHit()[axis] = (value & StatusPosLimit);
+                mActuatorState.HardRevLimitHit()[axis] = (value & StatusNegLimit);
+                mActuatorState.HomeSwitchOn()[axis] = (value & StatusHomeSwitch);
             }
-            if (!mIsHomed[axis])
+            if (!mActuatorState.IsHomed()[axis])
                 isAllHomed = false;
         }
         prmOperatingState::StateType newState = prmOperatingState::ENABLED;
@@ -521,29 +561,29 @@ void mtsCopleyController::Run()
             long trajStatus;
             if (ParameterGet(0xc9, trajStatus, axis) == 0) {
                 if (mState[axis] == ST_HOMING) {
-                    if (trajStatus & (1<<11)) {
+                    if (trajStatus & TrajStatusHomingError) {
                         sprintf(msgBuf, axisStr, ": Home error", axis);
                         mInterface->SendError(GetName()+msgBuf);
                         mState[axis] = ST_IDLE;
                     }
-                    else if (trajStatus & (1<<12)) {
-                        mIsHomed[axis] = true;
+                    else if (trajStatus & TrajStatusIsHomed) {
+                        mActuatorState.IsHomed()[axis] = true;
                         sprintf(msgBuf, axisStr, ": Home finished", axis);
                         mInterface->SendStatus(GetName()+msgBuf);
                         mState[axis] = ST_IDLE;
                     }
-                    else if (!(trajStatus & (1<<13))) {
+                    else if (!(trajStatus & TrajStatusHoming)) {
                         sprintf(msgBuf, axisStr, ": Home not active", axis);
                         mInterface->SendWarning(GetName()+msgBuf);
                     }
                 }
                 else if (mState[axis] == ST_MOVING) {
-                    if (trajStatus & (1<<14)) {
+                    if (trajStatus & TrajStatusMoveAborted) {
                         sprintf(msgBuf, axisStr, ": Motion aborted", axis);
                         mInterface->SendWarning(GetName()+msgBuf);
                         mState[axis] = ST_IDLE;
                     }
-                    else if (!(trajStatus & (1<<15))) {
+                    else if (!(trajStatus & TrajStatusInMotion)) {
                         sprintf(msgBuf, axisStr, ": Motion completed", axis);
                         mInterface->SendStatus(GetName()+msgBuf);
                         mState[axis] = ST_IDLE;
@@ -726,7 +766,7 @@ int mtsCopleyController::ParameterGet(unsigned int addr, long &value, unsigned i
         value = mPosRaw[axis];
         break;
     case 0xa0:
-        value = (sim24 == 0) ? (1<<12) : 0;
+        value = (sim24 == 0) ? StatusDriveDisabled : 0;
         break;
     default:
         value = 0;
@@ -1072,7 +1112,7 @@ void mtsCopleyController::state_command(const std::string &command)
             }
             if (command == "unhome") {
                 // Following clears local flag, but does not clear drive status
-                mIsHomed.SetAll(false);
+                mActuatorState.IsHomed().SetAll(false);
                 return;
             }
             if (command == "pause") {
@@ -1146,10 +1186,10 @@ void mtsCopleyController::Home(const vctBoolVec &mask)
                 sprintf(msgBuf, axisStr, ": Starting Home", axis);
                 mInterface->SendStatus(GetName()+msgBuf);
 #ifndef SIMULATION
-                mIsHomed[axis] = false;
+                mActuatorState.IsHomed()[axis] = false;
                 mState[axis] = ST_HOMING;
 #else
-                mIsHomed[axis] = true;
+                mActuatorState.IsHomed()[axis] = true;
                 mPosRaw[axis] = 0;
 #endif
             }

@@ -32,6 +32,7 @@ http://www.cisst.org/cisst/license.txt.
 #include <cisstParameterTypes/prmStateJoint.h>
 #include <cisstParameterTypes/prmPositionJointSet.h>
 #include <cisstParameterTypes/prmOperatingState.h>
+#include <cisstParameterTypes/prmActuatorState.h>
 
 #include <sawCopleyController/sawCopleyControllerConfig.h>
 
@@ -100,6 +101,7 @@ protected:
     prmStateJoint m_measured_js;            // Measured joint state (CRTK)
     prmStateJoint m_setpoint_js;            // Setpoint joint state (CRTK)
     prmOperatingState m_op_state;           // Operating state (CRTK)
+    prmActuatorState mActuatorState;        // Actuator state
     vctDoubleVec mDispScale;                // Display scale
     std::vector<std::string> mDispUnits;    // Display units
     std::vector<std::string> mAxisLabel;    // Axis label on drive (parameter 0x92)
@@ -109,7 +111,6 @@ protected:
     vctDoubleVec mDecel;                    // Max decel for position move
 
     vctUIntVec mState;                      // Internal state machine
-    vctBoolVec mIsHomed;                    // true if axis homed
 
     mtsFunctionWrite operating_state;       // Event generator
 
