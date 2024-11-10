@@ -524,10 +524,20 @@ void mtsCopleyController::Run()
         prmOperatingState::StateType newState = prmOperatingState::ENABLED;
         if (isAnyFault) {
             newState = prmOperatingState::FAULT;
+            char faultString[64];
+            char *ptr = faultString;
             for (axis = 0; axis < mNumAxes; axis++) {
-                if (ParameterGet(0xa4, value, axis) == 0)   // fault status
+                if (ParameterGet(0xa4, value, axis) == 0) {  // fault status
                     mFault[axis] = value;
+                    ptr += sprintf(ptr, "%lx", mFault[axis]);
+                }
+                else {
+                    *ptr++ = '?';
+                }
+                if (axis < mNumAxes-1) *ptr++ = ',';
             }
+            *ptr = 0;  // Null-terminate
+            m_op_state.SetSubState(faultString);
         }
         else if (isAnyDisabled) {
             newState = prmOperatingState::DISABLED;
