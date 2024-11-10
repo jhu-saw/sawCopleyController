@@ -303,6 +303,8 @@ void mtsCopleyController::Configure(const std::string& fileName)
     mActuatorState.MotorOff().SetAll(true);
     mActuatorState.InMotion().SetSize(mNumAxes);
     mActuatorState.InMotion().SetAll(false);
+    mActuatorState.IsHomed().SetSize(mNumAxes);
+    mActuatorState.IsHomed().SetAll(false);
     mActuatorState.HardFwdLimitHit().SetSize(mNumAxes);
     mActuatorState.HardFwdLimitHit().SetAll(false);
     mActuatorState.HardRevLimitHit().SetSize(mNumAxes);
