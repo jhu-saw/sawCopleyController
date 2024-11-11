@@ -49,7 +49,7 @@ const double AccelLimitBitsToCps2 = 1000.0;  // counts/s^2
 
 enum COPLEY_STATES { ST_IDLE, ST_HOMING, ST_MOVING };
 
-CMN_IMPLEMENT_SERVICES_DERIVED_ONEARG(mtsCopleyController, mtsTaskContinuous, mtsStdString)
+CMN_IMPLEMENT_SERVICES_DERIVED_ONEARG(mtsCopleyController, mtsTaskContinuous, mtsTaskContinuousConstructorArg);
 
 mtsCopleyController::mtsCopleyController(const std::string &name) : mtsTaskContinuous(name, 1024, true)
 {
