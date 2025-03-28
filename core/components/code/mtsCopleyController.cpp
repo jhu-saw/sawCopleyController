@@ -4,7 +4,7 @@
 /*
   Author(s): Peter Kazanzides
 
-  (C) Copyright 2024 Johns Hopkins University (JHU), All Rights Reserved.
+  (C) Copyright 2024-2025 Johns Hopkins University (JHU), All Rights Reserved.
 
 --- begin cisst license - do not edit ---
 
@@ -276,7 +276,7 @@ void mtsCopleyController::Configure(const std::string& fileName)
         strcpy(axisStr, "%s on axis %d");
 
     // Now, set the data sizes
-    m_config_j.Name().SetSize(mNumAxes);
+    m_config_j.Name().resize(mNumAxes);
     m_config_j.Type().SetSize(mNumAxes);
     m_config_j.PositionMin().SetSize(mNumAxes);
     m_config_j.PositionMax().SetSize(mNumAxes);
@@ -288,12 +288,12 @@ void mtsCopleyController::Configure(const std::string& fileName)
     mHomeOffsetRaw.SetSize(mNumAxes);
     mHomeOffsetRaw.SetAll(0);
     // We have position for measured_js and setpoint_js
-    m_measured_js.Name().SetSize(mNumAxes);
+    m_measured_js.Name().resize(mNumAxes);
     m_measured_js.Position().SetSize(mNumAxes);
     m_measured_js.Position().SetAll(0.0);
     m_measured_js.Effort().SetSize(mNumAxes);
     m_measured_js.Effort().SetAll(0.0);
-    m_setpoint_js.Name().SetSize(mNumAxes);
+    m_setpoint_js.Name().resize(mNumAxes);
     m_setpoint_js.Position().SetSize(mNumAxes);
     m_setpoint_js.Position().SetAll(0.0);
     // Actuator state
