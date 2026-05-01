@@ -1,5 +1,5 @@
 #
-# (C) Copyright 2016-2024 Johns Hopkins University (JHU), All Rights Reserved.
+# (C) Copyright 2016-2026 Johns Hopkins University (JHU), All Rights Reserved.
 #
 # --- begin cisst license - do not edit ---
 #
@@ -11,9 +11,6 @@
 
 cmake_minimum_required (VERSION 3.10)
 project (sawCopleyController VERSION 0.2.0)
-
-# So we can use Findgclib.cmake
-set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # create a list of required cisst libraries
 set (REQUIRED_CISST_LIBRARIES
