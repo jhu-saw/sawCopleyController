@@ -1,5 +1,5 @@
 #
-# (C) Copyright 2024 Johns Hopkins University (JHU), All Rights Reserved.
+# (C) Copyright 2024-2026 Johns Hopkins University (JHU), All Rights Reserved.
 #
 # --- begin cisst license - do not edit ---
 #
@@ -9,7 +9,7 @@
 #
 # --- end cisst license ---
 
-cmake_minimum_required (VERSION 3.10)
+cmake_minimum_required (VERSION 3.16)
 project (sawCopleyConsole VERSION 2.1.0)
 
 # List cisst libraries needed
@@ -21,45 +21,34 @@ set (REQUIRED_CISST_LIBRARIES
   cisstParameterTypes)
 
 # find cisst and make sure the required libraries have been compiled
-find_package (cisst 1.2 COMPONENTS ${REQUIRED_CISST_LIBRARIES})
+find_package (cisst 1.2 REQUIRED COMPONENTS ${REQUIRED_CISST_LIBRARIES})
 
-if (cisst_FOUND_AS_REQUIRED)
+# catkin/ROS paths
+cisst_set_output_path ()
 
-  # load cisst configuration
-  include (${CISST_USE_FILE})
+find_package (sawCopleyController HINTS ${CMAKE_BINARY_DIR})
 
-  # catkin/ROS paths
-  cisst_set_output_path ()
+if (sawCopleyController_FOUND)
 
-  find_package (sawCopleyController
-    HINTS ${CMAKE_BINARY_DIR})
+  include_directories (${sawCopleyController_INCLUDE_DIR})
+  link_directories (${sawCopleyController_LIBRARY_DIR})
 
-  if (sawCopleyController_FOUND)
+  add_executable (sawCopleyConsole main.cpp)
 
-    include_directories (${sawCopleyController_INCLUDE_DIR})
-    link_directories (${sawCopleyController_LIBRARY_DIR})
+  # link with sawCopleyController library and cisst libraries
+  target_link_libraries (sawCopleyConsole ${sawCopleyController_LIBRARIES}
+                                          ${cisst_LIBRARIES})
 
-    add_executable (sawCopleyConsole main.cpp)
-
-    # link with the cisst libraries
-    cisst_target_link_libraries (sawCopleyConsole ${REQUIRED_CISST_LIBRARIES})
-
-    # link with sawCopleyController library
-    target_link_libraries (sawCopleyConsole ${sawCopleyController_LIBRARIES})
-
-    set_target_properties (sawCopleyConsole PROPERTIES
+  set_target_properties (sawCopleyConsole PROPERTIES
       COMPONENT sawCopleyController-Examples
       FOLDER "sawCopleyController")
 
-    install (TARGETS sawCopleyConsole
+  install (TARGETS sawCopleyConsole
       COMPONENT sawCopleyController-Examples
       RUNTIME DESTINATION bin
       LIBRARY DESTINATION lib
       ARCHIVE DESTINATION lib)
 
-  else (sawCopleyController_FOUND)
-    message ("Information: sawCopleyConsole will not be compiled, it requires sawCopleyController")
-  endif (sawCopleyController_FOUND)
-else (cisst_FOUND_AS_REQUIRED)
-  message ("Information: sawCopleyConsole will not be compiled, it requires ${REQUIRED_CISST_LIBRARIES}")
-endif (cisst_FOUND_AS_REQUIRED)
+else (sawCopleyController_FOUND)
+  message ("Information: sawCopleyConsole will not be compiled, it requires sawCopleyController")
+endif (sawCopleyController_FOUND)

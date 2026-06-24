@@ -9,7 +9,7 @@
 #
 # --- end cisst license ---
 
-cmake_minimum_required (VERSION 3.10)
+cmake_minimum_required (VERSION 3.16)
 project (sawCopleyController VERSION 0.2.0)
 
 # create a list of required cisst libraries
@@ -20,77 +20,66 @@ set (REQUIRED_CISST_LIBRARIES
   cisstMultiTask
   cisstParameterTypes)
 
-find_package (cisst 1.2.0 REQUIRED ${REQUIRED_CISST_LIBRARIES})
+find_package (cisst 1.2.0 REQUIRED COMPONENTS ${REQUIRED_CISST_LIBRARIES})
 
-if (cisst_FOUND_AS_REQUIRED)
+if (NOT CISST_HAS_JSON)
+  message( FATAL_ERROR "sawCopleyController requires cisst to be built with JSON" )
+endif ()
 
-  # load cisst configuration
-  include (${CISST_USE_FILE})
+# catkin/ROS paths
+cisst_set_output_path ()
 
-  if (NOT CISST_HAS_JSON)
-    message( FATAL_ERROR "sawCopleyController requires cisst to be built with JSON" )
-  endif ()
+set (sawCopleyController_INCLUDE_DIR
+     "${sawCopleyController_SOURCE_DIR}/include"
+     "${sawCopleyController_BINARY_DIR}/include")
+set (sawCopleyController_HEADER_DIR "${sawCopleyController_SOURCE_DIR}/include/sawCopleyController")
+set (sawCopleyController_LIBRARY_DIR "${LIBRARY_OUTPUT_PATH}")
+set (sawCopleyController_LIBRARIES sawCopleyController)
 
-  # catkin/ROS paths
-  cisst_set_output_path ()
+include_directories (BEFORE ${sawCopleyController_INCLUDE_DIR})
 
-  set (sawCopleyController_INCLUDE_DIR
-    "${sawCopleyController_SOURCE_DIR}/include"
-    "${sawCopleyController_BINARY_DIR}/include")
-  set (sawCopleyController_HEADER_DIR "${sawCopleyController_SOURCE_DIR}/include/sawCopleyController")
-  set (sawCopleyController_LIBRARY_DIR "${LIBRARY_OUTPUT_PATH}")
-  set (sawCopleyController_LIBRARIES sawCopleyController)
+# add all config files for this component
+cisst_add_config_files (sawCopleyController)
 
-  include_directories (BEFORE ${sawCopleyController_INCLUDE_DIR})
+# create data type using the data generator
+cisst_data_generator (sawCopleyController
+     "${sawCopleyController_BINARY_DIR}/include"
+     "sawCopleyController/"
+     code/sawCopleyControllerConfig.cdg)
 
-  # add all config files for this component
-  cisst_add_config_files (sawCopleyController)
+set (sawCopleyController_HEADER_FILES
+     "${sawCopleyController_HEADER_DIR}/mtsCopleyController.h"
+     "${sawCopleyController_HEADER_DIR}/sawCopleyControllerExport.h"
+     ${sawCopleyController_CISST_DG_HDRS})
 
-  # create data type using the data generator
-  cisst_data_generator (sawCopleyController
-      "${sawCopleyController_BINARY_DIR}/include"
-      "sawCopleyController/"
-      code/sawCopleyControllerConfig.cdg)
+set (sawCopleyController_SOURCE_FILES
+     code/mtsCopleyController.cpp
+     ${sawCopleyController_CISST_DG_SRCS})
 
-    set (sawCopleyController_HEADER_FILES
-      "${sawCopleyController_HEADER_DIR}/mtsCopleyController.h"
-      "${sawCopleyController_HEADER_DIR}/sawCopleyControllerExport.h"
-      ${sawCopleyController_CISST_DG_HDRS})
+add_library (
+     sawCopleyController
+     ${IS_SHARED}
+     ${sawCopleyController_HEADER_FILES}
+     ${sawCopleyController_SOURCE_FILES})
 
-    set (sawCopleyController_SOURCE_FILES
-      code/mtsCopleyController.cpp
-      ${sawCopleyController_CISST_DG_SRCS})
+set_target_properties (
+     sawCopleyController PROPERTIES
+     VERSION ${sawCopleyController_VERSION}
+     FOLDER "sawCopleyController")
 
-    add_library (
-      sawCopleyController
-      ${IS_SHARED}
-      ${sawCopleyController_HEADER_FILES}
-      ${sawCopleyController_SOURCE_FILES})
+target_link_libraries (sawCopleyController ${cisst_LIBRARIES})
 
-    set_target_properties (
-      sawCopleyController PROPERTIES
-      VERSION ${sawCopleyController_VERSION}
-      FOLDER "sawCopleyController")
+# Install target for headers and library
+install (
+     DIRECTORY
+     "${sawCopleyController_SOURCE_DIR}/include/sawCopleyController"
+     "${sawCopleyController_BINARY_DIR}/include/sawCopleyController"
+     DESTINATION include
+     COMPONENT sawCopleyController-dev)
 
-    cisst_target_link_libraries (
-      sawCopleyController
-      ${REQUIRED_CISST_LIBRARIES})
-
-    # Install target for headers and library
-    install (
-      DIRECTORY
-      "${sawCopleyController_SOURCE_DIR}/include/sawCopleyController"
-      "${sawCopleyController_BINARY_DIR}/include/sawCopleyController"
-      DESTINATION include
-      COMPONENT sawCopleyController-dev)
-
-    install (
-      TARGETS sawCopleyController
-      COMPONENT sawCopleyController
-      RUNTIME DESTINATION bin
-      LIBRARY DESTINATION lib
-      ARCHIVE DESTINATION lib)
-
-else (cisst_FOUND_AS_REQUIRED)
-    message ("Information: code in ${CMAKE_CURRENT_SOURCE_DIR} will not be compiled, it requires ${REQUIRED_CISST_LIBRARIES}")
-endif (cisst_FOUND_AS_REQUIRED)
+install (
+     TARGETS sawCopleyController
+     COMPONENT sawCopleyController
+     RUNTIME DESTINATION bin
+     LIBRARY DESTINATION lib
+     ARCHIVE DESTINATION lib)
